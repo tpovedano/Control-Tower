@@ -36,8 +36,22 @@ export function envCredentials(env: ProcoreEnvironment): { clientId?: string; cl
  */
 export function appUrl(): string | null {
   const env = process.env as Record<string, string | undefined>;
-  const raw = (env["APP_URL"] || env["NEXT_PUBLIC_APP_URL"] || "").trim();
-  return raw ? raw.replace(/\/+$/, "") : null;
+  // Clave construida en ejecución: Next.js reemplaza cualquier referencia literal a NEXT_PUBLIC_* por su valor del build.
+  const publicKey = ["NEXT", "PUBLIC", "APP", "URL"].join("_");
+  return normalizeAppUrl(env["APP_URL"] || env[publicKey]);
+}
+
+/** Acepta "dominio.com", "https://dominio.com/" o con espacios; devuelve "https://dominio.com" o null si no es válida. */
+export function normalizeAppUrl(raw: string | undefined | null): string | null {
+  let v = (raw ?? "").trim();
+  if (!v) return null;
+  if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+  try {
+    const u = new URL(v);
+    return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return null;
+  }
 }
 
 export function redirectUri(): string {

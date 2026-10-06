@@ -362,7 +362,13 @@ function OAuthSetup() {
   }, []);
   if (!cfg) return null;
   const here = typeof window !== "undefined" ? window.location.origin : "";
-  const mismatch = !!cfg.appUrl && here && new URL(cfg.appUrl).origin !== here;
+  let configuredOrigin: string | null = null;
+  try {
+    configuredOrigin = cfg.appUrl ? new URL(cfg.appUrl).origin : null;
+  } catch {
+    configuredOrigin = null;
+  }
+  const mismatch = !!configuredOrigin && !!here && configuredOrigin !== here;
   return (
     <Alert variant={!cfg.appUrl || mismatch ? "warning" : "info"}>
       <p className="font-medium">Redirect URI para “Authorization Code”</p>
@@ -384,7 +390,7 @@ function OAuthSetup() {
           <Copy className="h-3.5 w-3.5" /> {copied ? "Copiado" : "Copiar"}
         </Button>
       </div>
-      {!cfg.appUrl && <p className="mt-2 text-xs">Falta configurar NEXT_PUBLIC_APP_URL (o APP_URL) en Vercel con la URL pública de la app.</p>}
+      {!cfg.appUrl && <p className="mt-2 text-xs">Falta configurar NEXT_PUBLIC_APP_URL (o APP_URL) en Vercel con la URL pública de la app, p. ej. https://mi-app.vercel.app</p>}
       {mismatch && (
         <p className="mt-2 text-xs">
           Ojo: estás usando la app en <strong>{here}</strong>, pero NEXT_PUBLIC_APP_URL apunta a <strong>{cfg.appUrl}</strong>. El Redirect URI se basa en esta última; si ese dominio ya no
