@@ -37,3 +37,16 @@ export interface RunItem {
   resultMessage: string | null;
   remoteId: string | null;
 }
+
+import type { MatrixRow, MatrixStats } from "@/lib/diff/matrix";
+
+export interface GovernanceResponse {
+  objectType: string;
+  instances: PublicInstance[];
+  rows: MatrixRow[];
+  stats: MatrixStats;
+  crossConflicts: { id: string; types: string[] }[];
+  snapshots: SnapshotMeta[];
+  referenceMode: "catalog" | "golden" | "consensus";
+  catalogSize: number;
+}
