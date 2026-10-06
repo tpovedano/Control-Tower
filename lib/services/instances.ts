@@ -85,7 +85,10 @@ export async function createInstance(input: InstanceInput): Promise<InstanceRow>
       isGolden: false,
     })
     .returning();
-  if (input.isGolden) await setGolden(row.id);
+  if (input.isGolden) {
+    await setGolden(row.id);
+    return getInstance(row.id);
+  }
   return row;
 }
 
@@ -119,9 +122,10 @@ export async function updateInstance(id: string, input: InstanceInput): Promise<
   }
   if (current.authMethod !== input.authMethod || current.environment !== input.environment) patch.refreshTokenEnc = null;
   const [row] = await db().update(schema.instances).set(patch).where(eq(schema.instances.id, id)).returning();
-  if (input.isGolden !== undefined) {
+  if (input.isGolden !== undefined && input.isGolden !== current.isGolden) {
     if (input.isGolden) await setGolden(id);
-    else if (current.isGolden) await db().update(schema.instances).set({ isGolden: false }).where(eq(schema.instances.id, id));
+    else await db().update(schema.instances).set({ isGolden: false }).where(eq(schema.instances.id, id));
+    return getInstance(id);
   }
   return row;
 }

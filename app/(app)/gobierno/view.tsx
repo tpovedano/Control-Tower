@@ -358,6 +358,9 @@ function DetailPanel({ row, data, canWrite, onRemediate }: { row: MatrixRow; dat
           </tbody>
         </table>
       </div>
+      {Object.values(row.cells).some((c) => c?.diffs.some((d) => d.attr === "lov_options")) && (
+        <Alert>Las opciones LOV distintas se completan desde el tipo “LOV Entries” → “Crear donde falta” (la API no permite renombrar ni reactivar opciones).</Alert>
+      )}
       {row.key && canWrite && (
         <div className="flex justify-end gap-2">
           <Button variant="outline" disabled={!hasMissing} onClick={() => onRemediate("create_missing")}>
