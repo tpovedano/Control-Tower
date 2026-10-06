@@ -47,3 +47,18 @@ describe("sesión", () => {
     expect(await safeEqual("abc", "abd")).toBe(false);
   });
 });
+
+describe("estado OAuth firmado", () => {
+  it("ida y vuelta", async () => {
+    const { createOAuthState, verifyOAuthState } = await import("@/lib/auth/session");
+    const s = await createOAuthState("inst-1", "ana", "k");
+    expect(await verifyOAuthState(s, "k")).toMatchObject({ i: "inst-1", u: "ana", p: "oauth" });
+  });
+  it("rechaza firma ajena, caducado y un token de sesión usado como estado", async () => {
+    const { createOAuthState, verifyOAuthState } = await import("@/lib/auth/session");
+    expect(await verifyOAuthState(await createOAuthState("i", "u", "k"), "otra")).toBeNull();
+    expect(await verifyOAuthState(await createOAuthState("i", "u", "k", Date.now() - 11 * 60 * 1000), "k")).toBeNull();
+    expect(await verifyOAuthState(await createSessionToken("u", "k"), "k")).toBeNull();
+    expect(await verifyOAuthState(null, "k")).toBeNull();
+  });
+});

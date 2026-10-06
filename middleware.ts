@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 
-const PUBLIC_PATHS = ["/login", "/api/login"];
+// El callback OAuth es público: se valida con el `state` firmado (se abre fuera del iframe de Procore).
+const PUBLIC_PATHS = ["/login", "/api/login", "/api/auth/procore/callback"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

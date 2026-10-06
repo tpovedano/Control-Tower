@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createSessionToken, safeEqual, SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/auth/session";
+import { sessionCookieOptions } from "@/lib/auth/cookies";
+import { createSessionToken, safeEqual } from "@/lib/auth/session";
 
 const schema = z.object({ user: z.string().trim().max(200).optional(), password: z.string().min(1).max(500) });
 
@@ -23,12 +24,6 @@ export async function POST(req: NextRequest) {
   }
   const token = await createSessionToken(user || "admin");
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_TTL_SECONDS,
-  });
+  res.cookies.set({ ...sessionCookieOptions(), value: token });
   return res;
 }

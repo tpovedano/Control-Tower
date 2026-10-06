@@ -1,7 +1,9 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, History, LayoutGrid, LogOut, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Building2, ExternalLink, History, LayoutGrid, LogOut, Upload } from "lucide-react";
+import { isEmbedded } from "@/lib/client/embed";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { ThemeToggle } from "./theme-toggle";
@@ -15,6 +17,8 @@ const TABS = [
 
 export function Nav({ user }: { user: string }) {
   const pathname = usePathname();
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => setEmbedded(isEmbedded()), []);
   async function logout() {
     await fetch("/api/logout", { method: "POST" });
     window.location.href = "/login";
@@ -48,6 +52,18 @@ export function Nav({ user }: { user: string }) {
           })}
         </nav>
         <span className="hidden text-xs text-muted-foreground md:inline">{user}</span>
+        {embedded && (
+          <a
+            href={pathname}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent"
+            title="Abrir en pestaña nueva (más espacio y descargas sin restricciones)"
+          >
+            <ExternalLink className="h-4 w-4" />
+            <span className="sr-only">Abrir en pestaña nueva</span>
+          </a>
+        )}
         <ThemeToggle />
         <button onClick={logout} className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent" title={t.nav.logout}>
           <LogOut className="h-4 w-4" />

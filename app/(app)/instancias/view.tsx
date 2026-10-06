@@ -9,6 +9,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Alert, Checkbox, EmptyState, Spinner } from "@/components/ui/misc";
 import { Badge } from "@/components/status-badge";
 import { api } from "@/lib/client/api";
+import { openInNewTab } from "@/lib/client/embed";
 import type { PublicInstance } from "@/lib/client/types";
 import { formatDate } from "@/lib/utils";
 
@@ -55,6 +56,35 @@ export function InstanciasView() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // La autorización se hace en otra pestaña: al volver (o al recibir su aviso) se refresca el estado.
+  const [authNotice, setAuthNotice] = useState<{ ok: boolean; url?: string } | null>(null);
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === "ct-oauth") {
+        setAuthNotice({ ok: !!e.data.ok });
+        load();
+      }
+    };
+    const onFocus = () => load();
+    window.addEventListener("message", onMessage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [load]);
+
+  async function authorize(inst: PublicInstance) {
+    setAuthNotice(null);
+    try {
+      const { url } = await api<{ url: string }>("/api/auth/procore/start", { body: { instanceId: inst.id } });
+      // El login de Procore no puede mostrarse dentro de un iframe: siempre en pestaña nueva.
+      if (!openInNewTab(url)) setAuthNotice({ ok: false, url });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   function openForm(inst: PublicInstance | "new") {
     setEditing(inst);
@@ -126,6 +156,17 @@ export function InstanciasView() {
       </div>
 
       {oauth === "ok" && <Alert>Autorización con Procore completada.</Alert>}
+      {authNotice?.ok && <Alert>Autorización con Procore completada.</Alert>}
+      {authNotice && !authNotice.ok && authNotice.url && (
+        <Alert variant="warning">
+          El navegador bloqueó la ventana de autorización.{" "}
+          <a className="font-medium underline" href={authNotice.url} target="_blank" rel="noreferrer">
+            Ábrela aquí
+          </a>{" "}
+          y, al terminar, vuelve a esta pantalla.
+        </Alert>
+      )}
+      {authNotice && !authNotice.ok && !authNotice.url && <Alert variant="error">La autorización no se completó. Revisa el Historial para ver el motivo.</Alert>}
       {oauth === "error" && <Alert variant="error">Error en la autorización: {params.get("msg")}</Alert>}
       {error && <Alert variant="error">{error}</Alert>}
 
@@ -208,11 +249,9 @@ export function InstanciasView() {
                     <Plug className="h-4 w-4" /> Probar conexión
                   </Button>
                   {inst.authMethod === "authorization_code" && (
-                    <a href={`/api/auth/procore/start?instanceId=${inst.id}`}>
-                      <Button size="sm" variant={inst.isAuthorized ? "ghost" : "default"}>
-                        <KeyRound className="h-4 w-4" /> {inst.isAuthorized ? "Reautorizar" : "Autorizar con Procore"}
-                      </Button>
-                    </a>
+                    <Button size="sm" variant={inst.isAuthorized ? "ghost" : "default"} onClick={() => authorize(inst)}>
+                      <KeyRound className="h-4 w-4" /> {inst.isAuthorized ? "Reautorizar" : "Autorizar con Procore"}
+                    </Button>
                   )}
                 </div>
               </Card>

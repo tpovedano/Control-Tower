@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { SESSION_COOKIE } from "@/lib/auth/session";
+import { sessionCookieOptions } from "@/lib/auth/cookies";
 
 export async function POST() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, "", { path: "/", maxAge: 0 });
+  // Mismos atributos (incluido Partitioned) que al crearla; si no, el navegador no la borra.
+  res.cookies.set({ ...sessionCookieOptions(0), value: "" });
   return res;
 }

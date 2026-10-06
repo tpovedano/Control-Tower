@@ -64,6 +64,7 @@ Copia `.env.example` a `.env.local` (local) o defínelas en **Vercel → Setting
 | `MAX_ROWS_PER_BATCH` | – | Límite de filas por lote en “Cargar” (500). |
 | `PROCORE_MAX_CONCURRENCY` | – | Peticiones simultáneas por instancia (3). |
 | `DB_DRIVER` | – | `neon` o `postgres` para forzar el driver de BD. |
+| `PROCORE_EMBED_ORIGINS` | – | Orígenes que pueden mostrar la app en un iframe. Por defecto `https://*.procore.com https://procore.com`. Se aplica en el build (redeploy al cambiarla). |
 
 Credencial por instancia (opcional): en la pestaña Instancias se puede guardar un Client ID/Secret propio para una company (p. ej. una DMSA distinta). Si se deja vacío se usan las variables globales.
 
@@ -75,6 +76,14 @@ Solo necesario si alguna instancia usa **Authorization Code** (autorización con
 2. En **Redirect URI** añade: `https://<tu-dominio>/api/auth/procore/callback`
    (en local: `http://localhost:3000/api/auth/procore/callback`). Debe coincidir exactamente con `NEXT_PUBLIC_APP_URL` + `/api/auth/procore/callback`.
 3. Para **Client Credentials (DMSA)** no hace falta Redirect URI, pero la service account debe estar **instalada en cada company** (Company Admin → App Management) con permisos de Admin en *Company Admin*/*Custom Fields*, *Inspections* y *Observations*. “Probar conexión” muestra qué permisos faltan.
+
+### 3.1 Mostrar la app incrustada en Procore (full screen)
+
+1. Developer Portal → tu app → **Configuration Builder** → añade un componente **Embedded / Full Screen** a nivel company, con URL `https://<tu-dominio>/` (la app redirige a su login y después a Cargar). Crea/promueve la versión del manifiesto.
+2. En cada company: **Company Admin → App Management** → instala o actualiza la app a esa versión. Aparecerá en el menú de herramientas/Apps de la company.
+3. En Vercel → Settings → **Deployment Protection**, desactiva *Vercel Authentication* para producción: su pantalla de login (`vercel.com`) nunca se deja incrustar y Procore mostraría “vercel.com rechazó la conexión”. La app ya está protegida por su propia contraseña.
+
+Cómo funciona: la app envía `Content-Security-Policy: frame-ancestors 'self' https://*.procore.com …` (solo Procore puede incrustarla) y en producción la cookie de sesión es `SameSite=None; Secure; Partitioned`, necesaria para funcionar dentro de un iframe de otro sitio. Si el navegador bloquea igualmente las cookies de terceros (Safari, o Chrome con el bloqueo estricto), el login lo detecta y ofrece **abrir Control Tower en una pestaña nueva**; dentro de Procore también hay un botón ↗ en la barra superior para lo mismo. **Autorizar con Procore** (Authorization Code) siempre se abre en una pestaña nueva, porque el login de Procore no se puede mostrar dentro de un iframe; al terminar, la tarjeta de la instancia se actualiza sola.
 
 ## 4. Desplegar
 

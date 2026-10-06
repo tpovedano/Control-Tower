@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
+import { isEmbedded } from "@/lib/client/embed";
 import { t } from "@/lib/i18n";
 
 export function LoginForm({ requiresUser }: { requiresUser: boolean }) {
@@ -13,6 +14,7 @@ export function LoginForm({ requiresUser }: { requiresUser: boolean }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [cookieBlocked, setCookieBlocked] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,6 +24,12 @@ export function LoginForm({ requiresUser }: { requiresUser: boolean }) {
     setLoading(false);
     if (!res.ok) {
       setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "No se pudo iniciar sesión");
+      return;
+    }
+    // Dentro del iframe de Procore algunos navegadores bloquean la cookie aunque el login sea correcto.
+    const check = await fetch("/api/session", { cache: "no-store" });
+    if (!check.ok) {
+      setCookieBlocked(true);
       return;
     }
     const next = params.get("next");
@@ -45,6 +53,17 @@ export function LoginForm({ requiresUser }: { requiresUser: boolean }) {
             <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
           </div>
           {error && <Alert variant="error">{error}</Alert>}
+          {cookieBlocked && (
+            <Alert variant="warning">
+              {isEmbedded()
+                ? "Tu navegador bloquea las cookies dentro de Procore (habitual en Safari o con cookies de terceros desactivadas). "
+                : "No se pudo guardar la sesión en este navegador. "}
+              <a className="font-medium underline" href="/cargar" target="_blank" rel="noreferrer">
+                Abre Control Tower en una pestaña nueva
+              </a>
+              .
+            </Alert>
+          )}
           <Button type="submit" className="w-full" loading={loading}>
             Entrar
           </Button>

@@ -38,25 +38,61 @@ export async function signValue(value: string, secret = sessionSecret()): Promis
   return b64url(new Uint8Array(sig));
 }
 
-export async function createSessionToken(user: string, secret = sessionSecret(), now = Date.now()): Promise<string> {
-  const payload: SessionPayload = { user, exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS };
+/** Firma un objeto JSON: base64url(json).base64url(hmac). */
+export async function signPayload(payload: object, secret = sessionSecret()): Promise<string> {
   const body = b64url(enc.encode(JSON.stringify(payload)));
   return `${body}.${await signValue(body, secret)}`;
 }
 
-export async function verifySessionToken(token: string | undefined, secret = sessionSecret(), now = Date.now()): Promise<SessionPayload | null> {
+/** Verifica y decodifica un objeto firmado con signPayload. Exige `exp` (epoch segundos) no vencido. */
+export async function verifyPayload<T extends { exp: number }>(token: string | undefined | null, secret = sessionSecret(), now = Date.now()): Promise<T | null> {
   if (!token) return null;
-  const [body, sig] = token.split(".");
-  if (!body || !sig) return null;
+  const [body, sig, extra] = token.split(".");
+  if (!body || !sig || extra !== undefined) return null;
   try {
     // Se compara la firma canónica re-codificada: rechaza también codificaciones base64 no canónicas.
     if (!(await safeEqual(sig, await signValue(body, secret)))) return null;
-    const payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as SessionPayload;
-    if (typeof payload.user !== "string" || payload.exp * 1000 < now) return null;
+    const payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as T;
+    if (typeof payload.exp !== "number" || payload.exp * 1000 < now) return null;
     return payload;
   } catch {
     return null;
   }
+}
+
+export async function createSessionToken(user: string, secret = sessionSecret(), now = Date.now()): Promise<string> {
+  const payload: SessionPayload = { user, exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS };
+  return signPayload(payload, secret);
+}
+
+export async function verifySessionToken(token: string | undefined, secret = sessionSecret(), now = Date.now()): Promise<SessionPayload | null> {
+  const payload = await verifyPayload<SessionPayload>(token, secret, now);
+  return payload && typeof payload.user === "string" ? payload : null;
+}
+
+/** Estado OAuth firmado: viaja en la URL, no depende de cookies (la autorización se abre en otra pestaña). */
+export interface OAuthState {
+  /** instanceId */
+  i: string;
+  /** usuario que inició la autorización */
+  u: string;
+  /** nonce */
+  n: string;
+  exp: number;
+  /** propósito, para que un token de sesión nunca valga como estado OAuth */
+  p: "oauth";
+}
+
+export const OAUTH_STATE_TTL_SECONDS = 10 * 60;
+
+export async function createOAuthState(instanceId: string, user: string, secret = sessionSecret(), now = Date.now()): Promise<string> {
+  const state: OAuthState = { i: instanceId, u: user, n: crypto.randomUUID(), exp: Math.floor(now / 1000) + OAUTH_STATE_TTL_SECONDS, p: "oauth" };
+  return signPayload(state, secret);
+}
+
+export async function verifyOAuthState(token: string | null, secret = sessionSecret(), now = Date.now()): Promise<OAuthState | null> {
+  const s = await verifyPayload<OAuthState>(token, secret, now);
+  return s && s.p === "oauth" && typeof s.i === "string" && typeof s.u === "string" ? s : null;
 }
 
 /** Comparación en tiempo constante de dos strings (vía HMAC para igualar longitudes). */

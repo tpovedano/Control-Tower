@@ -1,24 +1,22 @@
-import { NextResponse } from "next/server";
 import { route } from "@/lib/api";
-import { signValue } from "@/lib/auth/session";
+import { createOAuthState } from "@/lib/auth/session";
 import { procoreUrls, redirectUri, type ProcoreEnvironment } from "@/lib/procore/config";
 import { authorizeUrl } from "@/lib/procore/oauth";
 import { getInstance, oauthCredentialsFor } from "@/lib/services/instances";
 
 export const dynamic = "force-dynamic";
-const STATE_COOKIE = "ct_oauth_state";
 
-/** Inicia el flujo Authorization Code para una instancia. */
-export const GET = route(async (req) => {
-  const instanceId = req.nextUrl.searchParams.get("instanceId") ?? "";
-  const inst = await getInstance(instanceId);
+/**
+ * Devuelve la URL de autorización de Procore para una instancia (Authorization Code).
+ * El navegador la abre en una pestaña nueva: el login de Procore no se puede mostrar dentro de un iframe.
+ * El estado va firmado (instancia, usuario, caducidad 10 min) y no depende de cookies.
+ */
+export const POST = route(async (req, { user }) => {
+  const { instanceId } = (await req.json().catch(() => ({}))) as { instanceId?: string };
+  const inst = await getInstance(instanceId ?? "");
   if (inst.authMethod !== "authorization_code") throw new Error("La instancia no usa Authorization Code");
   const { loginUrl } = procoreUrls(inst.environment as ProcoreEnvironment);
   const { clientId } = oauthCredentialsFor(inst);
-  const nonce = crypto.randomUUID();
-  const value = `${inst.id}.${nonce}`;
-  const state = `${value}.${await signValue(value)}`;
-  const res = NextResponse.redirect(authorizeUrl(loginUrl, clientId, redirectUri(), state));
-  res.cookies.set(STATE_COOKIE, state, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 600 });
-  return res;
+  const state = await createOAuthState(inst.id, user);
+  return { url: authorizeUrl(loginUrl, clientId, redirectUri(), state) };
 });
