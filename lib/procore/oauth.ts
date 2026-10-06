@@ -42,10 +42,15 @@ export async function requestToken(loginUrl: string, grant: TokenGrant, fetchImp
   }
   if (!res.ok || typeof body.access_token !== "string") {
     const original = extractProcoreMessage(body) ?? text.slice(0, 200);
+    const code = typeof body.error === "string" ? body.error : "";
     const msg =
-      res.status === 401 || res.status === 400
-        ? "Procore rechazó la credencial (client_id/secret o refresh token inválidos o revocados)."
-        : `Error obteniendo token de Procore (${res.status}).`;
+      code === "invalid_client"
+        ? "Procore no reconoce el client_id/secret. Comprueba que usas las credenciales del mismo entorno que la instancia (Sandbox y Producción tienen credenciales distintas en el Developer Portal) y que no tienen espacios."
+        : code === "invalid_grant"
+          ? "El código de autorización o el refresh token no es válido o caducó (o el Redirect URI no coincide). Vuelve a autorizar la instancia."
+          : res.status === 401 || res.status === 400
+            ? "Procore rechazó la credencial (client_id/secret o refresh token inválidos o revocados)."
+            : `Error obteniendo token de Procore (${res.status}).`;
     // Nunca incluimos los parámetros de la petición en el error.
     throw new ProcoreError("unauthorized", msg, res.status, original);
   }

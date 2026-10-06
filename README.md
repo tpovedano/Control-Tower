@@ -49,8 +49,12 @@ Copia `.env.example` a `.env.local` (local) o defínelas en **Vercel → Setting
 
 | Variable | Obligatoria | Descripción |
 |---|---|---|
-| `PROCORE_CLIENT_ID` | ✅ | Client ID de la app ya creada en el Developer Portal. |
-| `PROCORE_CLIENT_SECRET` | ✅ | Client Secret de esa app. |
+| `PROCORE_CLIENT_ID` | ✅* | Client ID de **producción** (Developer Portal → tu app → *Production OAuth Credentials*). |
+| `PROCORE_CLIENT_SECRET` | ✅* | Client Secret de producción. |
+| `PROCORE_SANDBOX_CLIENT_ID` | ✅* | Client ID de **sandbox** (*Sandbox OAuth Credentials*). Es distinto del de producción. |
+| `PROCORE_SANDBOX_CLIENT_SECRET` | ✅* | Client Secret de sandbox. |
+
+\* Basta con el par del entorno que uses (instancias marcadas Producción o Sandbox). Usar el par de un entorno contra el otro produce en Procore *“Client authentication failed due to unknown client…”*.
 | `PROCORE_BASE_URL` | – | API de producción. Por defecto `https://api.procore.com`. |
 | `PROCORE_LOGIN_URL` | – | Login/OAuth de producción. Por defecto `https://login.procore.com`. |
 | `PROCORE_SANDBOX_BASE_URL` | – | API sandbox (instancias marcadas “Sandbox”). Por defecto `https://sandbox.procore.com`. |

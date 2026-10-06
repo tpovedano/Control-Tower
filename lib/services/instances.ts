@@ -5,7 +5,7 @@ import { db, schema } from "@/lib/db";
 import type { InstanceRow } from "@/lib/db/schema";
 import { decryptOptional, encrypt, encryptOptional } from "@/lib/crypto";
 import { ProcoreClient, type TokenProvider } from "@/lib/procore/client";
-import { procoreUrls, type ProcoreEnvironment } from "@/lib/procore/config";
+import { envCredentials, procoreUrls, type ProcoreEnvironment } from "@/lib/procore/config";
 import { isTokenFresh, requestToken } from "@/lib/procore/oauth";
 import { ProcoreError } from "@/lib/procore/errors";
 
@@ -151,10 +151,14 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 const inflight = new Map<string, Promise<string>>();
 
 function credentialsFor(row: InstanceRow): { clientId: string; clientSecret: string } {
-  const clientId = decryptOptional(row.clientIdEnc) ?? process.env.PROCORE_CLIENT_ID;
-  const clientSecret = decryptOptional(row.clientSecretEnc) ?? process.env.PROCORE_CLIENT_SECRET;
+  const env = envCredentials(row.environment as ProcoreEnvironment);
+  const clientId = decryptOptional(row.clientIdEnc)?.trim() || env.clientId;
+  const clientSecret = decryptOptional(row.clientSecretEnc)?.trim() || env.clientSecret;
   if (!clientId || !clientSecret) {
-    throw new ProcoreError("config", "Faltan PROCORE_CLIENT_ID / PROCORE_CLIENT_SECRET (o la credencial propia de la instancia).");
+    throw new ProcoreError(
+      "config",
+      `Faltan ${env.idVar} / ${env.secretVar} para instancias de ${row.environment === "sandbox" ? "Sandbox" : "Producción"} (o una credencial propia en la instancia).`,
+    );
   }
   return { clientId, clientSecret };
 }
