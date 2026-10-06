@@ -29,7 +29,14 @@ describe("sesión", () => {
     const tok = await createSessionToken("ana@x.com", "s3cret");
     expect((await verifySessionToken(tok, "s3cret"))?.user).toBe("ana@x.com");
     expect(await verifySessionToken(tok, "otro")).toBeNull();
-    expect(await verifySessionToken(tok.replace(/.$/, "A"), "s3cret")).toBeNull();
+    for (const swap of ["A", "B", "Q", "w"]) {
+      const forged = tok.slice(0, -1) + swap;
+      if (forged !== tok) expect(await verifySessionToken(forged, "s3cret")).toBeNull();
+    }
+    const [body, sig] = tok.split(".");
+    const otherBody = btoa(JSON.stringify({ user: "admin", exp: 9e9 })).replace(/=+$/, "");
+    expect(await verifySessionToken(`${otherBody}.${sig}`, "s3cret")).toBeNull();
+    expect(body).toBeTruthy();
   });
   it("expira", async () => {
     const tok = await createSessionToken("u", "s", Date.now() - 13 * 3600 * 1000);

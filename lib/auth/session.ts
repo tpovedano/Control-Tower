@@ -49,8 +49,8 @@ export async function verifySessionToken(token: string | undefined, secret = ses
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
   try {
-    const ok = await crypto.subtle.verify("HMAC", await hmacKey(secret), fromB64url(sig), enc.encode(body));
-    if (!ok) return null;
+    // Se compara la firma canónica re-codificada: rechaza también codificaciones base64 no canónicas.
+    if (!(await safeEqual(sig, await signValue(body, secret)))) return null;
     const payload = JSON.parse(new TextDecoder().decode(fromB64url(body))) as SessionPayload;
     if (typeof payload.user !== "string" || payload.exp * 1000 < now) return null;
     return payload;
