@@ -30,7 +30,16 @@ export function envCredentials(env: ProcoreEnvironment): { clientId?: string; cl
   return { clientId: clean(process.env.PROCORE_CLIENT_ID), clientSecret: clean(process.env.PROCORE_CLIENT_SECRET), idVar: "PROCORE_CLIENT_ID", secretVar: "PROCORE_CLIENT_SECRET" };
 }
 
+/**
+ * URL pública de la app. Se lee en tiempo de ejecución (acceso dinámico a process.env) para que un cambio
+ * de dominio en Vercel no quede "congelado" en el build. APP_URL tiene prioridad sobre NEXT_PUBLIC_APP_URL.
+ */
+export function appUrl(): string | null {
+  const env = process.env as Record<string, string | undefined>;
+  const raw = (env["APP_URL"] || env["NEXT_PUBLIC_APP_URL"] || "").trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
 export function redirectUri(): string {
-  const base = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").trim().replace(/\/+$/, "");
-  return `${base}/api/auth/procore/callback`;
+  return `${appUrl() ?? "http://localhost:3000"}/api/auth/procore/callback`;
 }

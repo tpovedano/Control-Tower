@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, KeyRound, Pencil, Plug, Plus, Star, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, KeyRound, Pencil, Plug, Plus, Star, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -142,6 +142,7 @@ export function InstanciasView() {
   }
 
   const oauth = params.get("oauth");
+  const usesAuthCode = (instances ?? []).some((i) => i.authMethod === "authorization_code");
 
   return (
     <div className="space-y-4">
@@ -155,6 +156,7 @@ export function InstanciasView() {
         </Button>
       </div>
 
+      {usesAuthCode && <OAuthSetup />}
       {oauth === "ok" && <Alert>Autorización con Procore completada.</Alert>}
       {authNotice?.ok && <Alert>Autorización con Procore completada.</Alert>}
       {authNotice && !authNotice.ok && authNotice.url && (
@@ -346,5 +348,49 @@ export function InstanciasView() {
         }
       />
     </div>
+  );
+}
+
+/** Muestra el Redirect URI exacto que envía la app, para copiarlo al Developer Portal. */
+function OAuthSetup() {
+  const [cfg, setCfg] = useState<{ appUrl: string | null; redirectUri: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    api<{ appUrl: string | null; redirectUri: string }>("/api/oauth-config")
+      .then(setCfg)
+      .catch(() => undefined);
+  }, []);
+  if (!cfg) return null;
+  const here = typeof window !== "undefined" ? window.location.origin : "";
+  const mismatch = !!cfg.appUrl && here && new URL(cfg.appUrl).origin !== here;
+  return (
+    <Alert variant={!cfg.appUrl || mismatch ? "warning" : "info"}>
+      <p className="font-medium">Redirect URI para “Authorization Code”</p>
+      <p className="mt-1 text-xs">
+        Regístralo <strong>exactamente así</strong> en el Developer Portal de Procore, en las credenciales del mismo entorno que la instancia (Sandbox o Production):
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <code className="break-all rounded bg-background px-2 py-1 text-xs">{cfg.redirectUri}</code>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            navigator.clipboard?.writeText(cfg.redirectUri).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+        >
+          <Copy className="h-3.5 w-3.5" /> {copied ? "Copiado" : "Copiar"}
+        </Button>
+      </div>
+      {!cfg.appUrl && <p className="mt-2 text-xs">Falta configurar NEXT_PUBLIC_APP_URL (o APP_URL) en Vercel con la URL pública de la app.</p>}
+      {mismatch && (
+        <p className="mt-2 text-xs">
+          Ojo: estás usando la app en <strong>{here}</strong>, pero NEXT_PUBLIC_APP_URL apunta a <strong>{cfg.appUrl}</strong>. El Redirect URI se basa en esta última; si ese dominio ya no
+          es el correcto, actualiza la variable en Vercel y redespliega.
+        </p>
+      )}
+    </Alert>
   );
 }
