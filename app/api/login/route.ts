@@ -1,13 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { sessionCookieOptions } from "@/lib/auth/cookies";
-import { createSessionToken, safeEqual } from "@/lib/auth/session";
+import { createSessionToken, safeEqual, sessionSecret } from "@/lib/auth/session";
 
 const schema = z.object({ user: z.string().trim().max(200).optional(), password: z.string().min(1).max(500) });
 
 export async function POST(req: NextRequest) {
   const expected = process.env.APP_ACCESS_PASSWORD;
   if (!expected) return NextResponse.json({ error: "APP_ACCESS_PASSWORD no está configurada: el acceso está bloqueado." }, { status: 503 });
+  try {
+    sessionSecret();
+  } catch {
+    return NextResponse.json(
+      { error: "Falta configurar ENCRYPTION_KEY (o SESSION_SECRET) en las variables de entorno del servidor; sin ella no se puede crear la sesión. Añádela y vuelve a desplegar." },
+      { status: 503 },
+    );
+  }
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
 

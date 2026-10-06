@@ -23,7 +23,8 @@ export function LoginForm({ requiresUser }: { requiresUser: boolean }) {
     const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user, password }) });
     setLoading(false);
     if (!res.ok) {
-      setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "No se pudo iniciar sesión");
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(data.error ?? `No se pudo iniciar sesión (error ${res.status} del servidor). Revisa las variables de entorno y los logs de Vercel.`);
       return;
     }
     // Dentro del iframe de Procore algunos navegadores bloquean la cookie aunque el login sea correcto.
