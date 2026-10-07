@@ -30,8 +30,9 @@ const companies: Record<string, Company> = {
     ],
     lovs: { 12: [{ id: 121, label: "[OK] Conforme", active: true, position: 2 }, { id: 122, label: "[NOK] No conforme", active: true, position: 1 }] },
     fieldSets: [
-      { id: 31, name: "Predeterminado Observaciones", class_name: "Observation", company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
-      { id: 32, name: "[FS-001] Calidad", class_name: "Observation", fields: { title: { required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
+      { id: 31, name: "Predeterminado Observaciones Seguridad", class_name: "Observation", observations_category_id: 7, observations_category: { id: 7, name: "Safety" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
+      { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observation", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
+      { id: 32, name: "[FS-001] Calidad", class_name: "Observation", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, fields: { title: { required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
     ],
     inspectionTypes: [{ id: 41, name: "[IT-001] Seguridad", grouping: "HSE" }],
     observationTypes: [{ id: 51, name: "[OT-001] Seguridad", category: "safety", active: true }],
@@ -43,7 +44,7 @@ const companies: Record<string, Company> = {
       { id: 22, label: "[CF-002] Quality status", data_type: "lov_entry", active: false },
     ],
     lovs: { 22: [{ id: 221, label: "[OK] Compliant", active: true, position: 1 }] },
-    fieldSets: [{ id: 61, name: "Default Observations", class_name: "Observation", company_default: true, fields: { title: { required: true } }, custom_field_sections: [] }],
+    fieldSets: [{ id: 61, name: "Default Quality Observations", class_name: "Observation", observations_category_id: 81, observations_category: { id: 81, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] }],
     inspectionTypes: [],
     observationTypes: [{ id: 71, name: "[OT-001] Safety", category: "safety", active: true }],
   },
@@ -140,6 +141,7 @@ const server = http.createServer(async (req, res) => {
     return page(c.lovs[Number(mm[1])] ?? [], url, res, true);
   }
   if ((mm = /^\/rest\/v1\.0\/custom_field_definitions\/(\d+)\/custom_field_lov_entries\/bulk_create$/.exec(path)) && m === "POST") {
+    if (!url.searchParams.get("company_id")) return send(res, 400, { code: "BAD_REQUEST", message: "Missing Project or Company ID" });
     const id = Number(mm[1]);
     const list = (c.lovs[id] ??= []);
     const entries = ((await body(req)).custom_field_lov_entries ?? []) as { label: string }[];
@@ -151,10 +153,15 @@ const server = http.createServer(async (req, res) => {
 
   // Field sets
   if (/^\/rest\/v2\.1\/companies\/\d+\/configurable_field_sets$/.test(path)) {
-    if (m === "GET") return page(c.fieldSets.map(({ custom_field_sections: _s, ...fs }) => fs), url, res, true);
+    // Como Procore: el listado no incluye "fields" ni las secciones (hay que pedir el detalle).
+    if (m === "GET") return page(c.fieldSets.map(({ custom_field_sections: _s, fields: _f, ...fs }) => fs), url, res, true);
     const b = await body(req);
     const fs = b.configurable_field_set as Obj;
-    if (!fs?.name || !fs.class_name || !fs.fields) return send(res, 422, { errors: { base: ["name, class_name y fields son obligatorios"] } });
+    const errs: string[] = [];
+    if (!fs?.fields || !Object.keys(fs.fields as object).length) errs.push("Configurable fields can't be blank");
+    if (fs?.class_name === "Observation" && !fs.observations_category_id) errs.push("Observation category can't be blank");
+    if (!fs?.name || !fs.class_name) errs.push("name and class_name are required");
+    if (errs.length) return send(res, 422, { errors: { base: errs } });
     const created = { ...fs, id: nextId(), custom_field_sections: ((b.custom_field_sections ?? []) as Obj[]).map((s) => ({ ...s, id: nextId() })) };
     c.fieldSets.push(created);
     return send(res, 201, { data: created });

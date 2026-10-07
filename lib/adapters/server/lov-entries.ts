@@ -82,7 +82,7 @@ export const lovEntriesAdapter: ServerAdapter = {
       }
       const ordered = idxs.map((i) => inputs[i].desired);
       const body = { custom_field_lov_entries: [...ordered].reverse().map((d) => ({ label: d.name })) };
-      const r = await runWrite(body, () => ctx.client.post(E.lovEntries.bulkCreate(parent.remoteId), body, { resource: "LOV Entries" }), () => undefined, "Creada");
+      const r = await runWrite(body, () => ctx.client.post(E.lovEntries.bulkCreate(parent.remoteId), body, { resource: "LOV Entries", query: { company_id: ctx.companyId } }), () => undefined, "Creada");
       let verifyNote = "";
       if (r.ok) {
         invalidate(ctx, "lov_entries");

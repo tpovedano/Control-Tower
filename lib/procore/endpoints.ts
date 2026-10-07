@@ -29,7 +29,10 @@ export const PROCORE_ENDPOINTS = {
 
   lovEntries: {
     list: (c: Id, cfId: Id) => `/rest/v2.0/companies/${c}/custom_field_definitions/${cfId}/custom_field_lov_entries`,
-    /** Posición ordenada de forma descendente: la mayor posición queda arriba. */
+    /**
+     * Posición ordenada de forma descendente: la mayor posición queda arriba.
+     * Endpoint v1.0: además de la cabecera exige `company_id` como query (si no: "Missing Project or Company ID").
+     */
     bulkCreate: (cfId: Id) => `/rest/v1.0/custom_field_definitions/${cfId}/custom_field_lov_entries/bulk_create`,
   },
 

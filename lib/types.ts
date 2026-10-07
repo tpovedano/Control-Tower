@@ -78,4 +78,13 @@ export interface ColumnSpec {
   required?: boolean;
   hint?: string;
   example: string;
+  /** Editor de la celda: texto libre (por defecto), desplegable o selección múltiple. */
+  input?: "text" | "select" | "multiselect";
+  /** Clave de las opciones en ValidationContext.options. */
+  optionsKey?: string;
+}
+
+export interface SelectOption {
+  value: string;
+  label: string;
 }

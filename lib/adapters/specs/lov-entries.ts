@@ -9,7 +9,7 @@ export const lovEntriesSpec: ObjectSpec = {
   writable: true,
   dependsOn: ["custom_fields"],
   columns: [
-    { id: "parent", label: "[ID] del custom field padre", required: true, example: "[CF-010]" },
+    { id: "parent", label: "[ID] del custom field padre", required: true, example: "[CF-010]", input: "select", optionsKey: "lovCustomFields" },
     { id: "name", label: "Opción con [ID]", required: true, example: "[OPT-01] Conforme" },
   ],
   compareAttrs: ["active"],

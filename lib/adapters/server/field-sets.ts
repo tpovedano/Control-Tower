@@ -72,6 +72,46 @@ function matchKey(k: string, into: Set<string>): boolean {
   return !!m;
 }
 
+/** Claves de ámbito que Procore exige según la herramienta (se copian de la plantilla al crear). */
+const SCOPE_KEYS = ["observations_category_id", "inspection_type_id", "incident_type_id", "generic_tool_id", "action_plan_type_id", "category", "schema_id"] as const;
+
+export interface FieldSetScope {
+  kind: string;
+  id: string | null;
+  name: string | null;
+}
+
+/** Ámbito del field set dentro de su herramienta (categoría de observación, tipo de inspección…). */
+export function extractScope(raw: Record<string, unknown>): FieldSetScope | null {
+  const obj = (k: string) => (raw[k] && typeof raw[k] === "object" ? (raw[k] as Record<string, unknown>) : null);
+  const nameOf = (o: Record<string, unknown> | null) => (o ? str(o.name ?? o.title ?? o.label) : null);
+  const pairs: [string, string, string[]][] = [
+    ["observations_category", "observations_category_id", ["observations_category", "observation_category"]],
+    ["inspection_type", "inspection_type_id", ["inspection_type"]],
+    ["incident_type", "incident_type_id", ["incident_type"]],
+    ["generic_tool", "generic_tool_id", ["generic_tool"]],
+    ["action_plan_type", "action_plan_type_id", ["action_plan_type"]],
+  ];
+  for (const [kind, idKey, objKeys] of pairs) {
+    const o = objKeys.map(obj).find(Boolean) ?? null;
+    const id = str(raw[idKey] ?? o?.id);
+    const name = nameOf(o);
+    if (id || name) return { kind, id, name };
+  }
+  const category = str(typeof raw.category === "string" ? raw.category : nameOf(obj("category")));
+  return category ? { kind: "category", id: null, name: category } : null;
+}
+
+/** Texto con el que se identifica el ámbito entre instancias (el nombre; si no hay, el id local). */
+export function scopeLabel(scope: FieldSetScope | null): string | null {
+  return scope ? scope.name ?? (scope.id ? `#${scope.id}` : null) : null;
+}
+
+/** Valor del desplegable "Clase/Herramienta": "class_name" o "class_name | ámbito". */
+export function templateValue(className: string | null, scope: string | null): string {
+  return scope ? `${className ?? ""} | ${scope}` : className ?? "";
+}
+
 function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, NormalizedItem> = new Map()): NormalizedItem {
   const name = String(raw.name ?? "");
   const p = parseName(name);
@@ -80,6 +120,7 @@ function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, Normali
     ids: s.remoteIds.map((r) => cfByRemote.get(r)?.key ?? `#${r}`),
   }));
   const allIds = Array.from(new Set(sections.flatMap((s) => s.ids))).sort();
+  const scope = extractScope(raw);
   return {
     key: p.id,
     stdId: p.id,
@@ -88,13 +129,14 @@ function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, Normali
     remoteId: String(raw.id),
     attrs: {
       class_name: str(raw.class_name ?? raw.type ?? raw.klass),
+      scope: scopeLabel(scope),
       custom_fields: allIds,
     },
     extra: {
       sections,
       fields: raw.fields ?? null,
       company_default: raw.company_default ?? null,
-      category: raw.category ?? null,
+      scopeInfo: scope,
     },
   };
 }
@@ -164,6 +206,27 @@ export function mergeSections(existing: SectionInfo[], desiredIds: string[], exp
   return result;
 }
 
+/** Busca en la instancia destino un field set de la misma clase y ámbito que sirva de plantilla. */
+async function findTemplate(className: string, scope: string | null, ctx: AdapterContext): Promise<NormalizedItem | null> {
+  const all = await listFieldSets(ctx);
+  const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+  const candidates = all.filter((f) => norm(f.attrs.class_name) === norm(className) && (scope ? norm(f.attrs.scope) === norm(scope) : true));
+  if (!candidates.length) return null;
+  return candidates.find((c) => c.extra?.company_default === true) ?? candidates.find((c) => !c.key) ?? candidates[0];
+}
+
+async function templateRaw(template: NormalizedItem, ctx: AdapterContext): Promise<Record<string, unknown>> {
+  const raws = await listRaw(ctx);
+  const listed = raws.find((r) => String(r.id) === template.remoteId) ?? {};
+  if (listed.fields && Object.keys(listed.fields as object).length) return listed;
+  const res = await ctx.client.get(E.fieldSets.show(ctx.companyId, template.remoteId), { resource: "Field Sets" });
+  return { ...listed, ...extractObject<Record<string, unknown>>(res.data) };
+}
+
+function templateMissingMessage(className: string, scope: string | null) {
+  return `No hay en esta instancia ningún field set de “${templateValue(className, scope)}” que sirva de plantilla. Procore exige la configuración de campos y el ámbito propios de esa herramienta: crea (o activa) uno de esa herramienta/categoría en Procore, sincroniza y vuelve a intentarlo.`;
+}
+
 export const fieldSetsAdapter: ServerAdapter = {
   spec: fieldSetsSpec,
   normalize,
@@ -172,7 +235,12 @@ export const fieldSetsAdapter: ServerAdapter = {
     const ids = (desired.attrs.custom_fields as string[]) ?? [];
     const { missing, ambiguous } = await resolveIds(ids, ctx);
     if (ambiguous.length) return { missing, message: `Conflicto: custom fields con ID repetido en esta instancia: ${ambiguous.join(", ")}.` };
-    return { missing };
+    if (missing.length) return { missing };
+    const exists = (await listFieldSets(ctx)).some((f) => f.key === desired.key);
+    if (!exists && !(await findTemplate(String(desired.attrs.class_name), (desired.attrs.scope as string) ?? null, ctx))) {
+      return { missing: [], message: templateMissingMessage(String(desired.attrs.class_name), (desired.attrs.scope as string) ?? null) };
+    }
+    return { missing: [] };
   },
   async plan(desired, existing, ctx, options) {
     const deps = await this.dependencies!(desired, ctx);
@@ -194,25 +262,41 @@ export const fieldSetsAdapter: ServerAdapter = {
         custom_field_definition_ids: s.ids.filter((id) => map.has(id)).map((id) => Number(map.get(id))),
       });
       if (plan.action === "CREATE") {
-        // "fields" es obligatorio: se usa la configuración de la referencia si viene, si no la del field set
-        // por defecto de la misma clase en la instancia destino.
-        let fields = desired.extra?.fields ?? null;
-        let note = "";
-        if (!fields) {
-          const sameClass = raws.filter((r) => String(r.class_name ?? r.type ?? "") === String(desired.attrs.class_name));
-          const def = sameClass.find((r) => r.company_default === true) ?? sameClass[0];
-          fields = def?.fields ?? {};
-          if (!def) note = " (sin field set por defecto de esa clase: se envió fields vacío)";
+        const className = String(desired.attrs.class_name);
+        const scope = (desired.attrs.scope as string) ?? null;
+        const template = await findTemplate(className, scope, ctx);
+        if (!template) {
+          results.push({ ok: false, message: templateMissingMessage(className, scope), request: null, response: null });
+          continue;
         }
+        let tmpl: Record<string, unknown>;
+        try {
+          tmpl = await templateRaw(template, ctx);
+        } catch (e) {
+          results.push({ ok: false, message: `No se pudo leer la plantilla “${template.name}”: ${(e as Error).message}`, request: null, response: null });
+          continue;
+        }
+        // Se copian de la plantilla (de ESTA instancia) la configuración de campos y el ámbito: son locales a cada company.
+        const scopeAttrs: Record<string, unknown> = {};
+        for (const k of SCOPE_KEYS) if (tmpl[k] !== null && tmpl[k] !== undefined && tmpl[k] !== "") scopeAttrs[k] = tmpl[k];
+        const info = template.extra?.scopeInfo as FieldSetScope | null;
+        if (info?.id && info.kind !== "category" && !scopeAttrs[`${info.kind}_id`]) scopeAttrs[`${info.kind}_id`] = info.id;
         const body = {
-          configurable_field_set: { name: desired.name, class_name: desired.attrs.class_name, fields },
+          configurable_field_set: { name: desired.name, class_name: tmpl.class_name ?? className, fields: tmpl.fields ?? {}, ...scopeAttrs },
           custom_field_sections: desiredSections(desired.extra, ids).map(toSection),
         };
-        const r = await runWrite(body, () => ctx.client.post(E.fieldSets.create(ctx.companyId), body, { resource: "Field Sets" }), idOf, `Creado${note}`);
-        results.push(r);
+        results.push(await runWrite(body, () => ctx.client.post(E.fieldSets.create(ctx.companyId), body, { resource: "Field Sets" }), idOf, `Creado (plantilla: “${template.name}”)`));
       } else {
         const existingSections = (current?.extra?.sections as SectionInfo[]) ?? [];
-        const currentRaw = raws.find((r) => String(r.id) === plan.remoteId);
+        let currentRaw = raws.find((r) => String(r.id) === plan.remoteId);
+        if (!currentRaw?.fields && plan.remoteId) {
+          try {
+            const res = await ctx.client.get(E.fieldSets.show(ctx.companyId, plan.remoteId), { resource: "Field Sets" });
+            currentRaw = { ...currentRaw, ...extractObject<Record<string, unknown>>(res.data) };
+          } catch {
+            /* se intenta con lo que hay */
+          }
+        }
         const explicit = (desired.extra?.sectionsExplicit ? (desired.extra?.sections as SectionSpec[]) : null) ?? null;
         const sections = mergeSections(existingSections, ids, explicit);
         const body = {
@@ -235,8 +319,12 @@ export const fieldSetsAdapter: ServerAdapter = {
       key: item.key!,
       stdId: item.stdId!,
       name: item.name,
-      attrs: { class_name: item.attrs.class_name ?? null, custom_fields: (item.attrs.custom_fields as string[]) ?? [] },
-      extra: { sections, sectionsExplicit: true, fields: item.extra?.fields ?? null },
+      attrs: {
+        class_name: item.attrs.class_name ?? null,
+        scope: item.attrs.scope ?? null,
+        custom_fields: (item.attrs.custom_fields as string[]) ?? [],
+      },
+      extra: { sections, sectionsExplicit: true },
     };
   },
 };

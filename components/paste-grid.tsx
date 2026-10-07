@@ -3,8 +3,9 @@ import { useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowStatusBadge } from "@/components/status-badge";
+import { MultiSelectCell, SelectCell } from "@/components/cell-editors";
 import { looksLikeHeader, parseClipboard } from "@/lib/paste/parse";
-import type { ColumnSpec, ParsedRow } from "@/lib/types";
+import type { ColumnSpec, ParsedRow, SelectOption } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,19 +18,22 @@ export function PasteGrid({
   onChange,
   validation,
   suggestions,
+  options,
 }: {
   columns: ColumnSpec[];
   rows: string[][];
   onChange: (rows: string[][]) => void;
   validation: ParsedRow[];
   suggestions?: Record<string, string[]>;
+  /** Opciones de las columnas con desplegable o selección múltiple (por optionsKey). */
+  options?: Partial<Record<string, SelectOption[]>>;
 }) {
   const tableRef = useRef<HTMLTableElement>(null);
 
   function focusCell(r: number, c: number) {
-    const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-r="${r}"][data-c="${c}"]`);
+    const el = tableRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-r="${r}"][data-c="${c}"]`);
     el?.focus();
-    el?.select();
+    if (el instanceof HTMLInputElement) el.select();
   }
 
   function setCell(r: number, c: number, value: string) {
@@ -56,7 +60,9 @@ export function PasteGrid({
     onChange(trimEmpty(next));
   }
 
-  function handleKey(e: React.KeyboardEvent<HTMLInputElement>, r: number, c: number) {
+  function handleKey(e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>, r: number, c: number) {
+    // En un desplegable, ↑/↓ cambian la opción: solo Enter mueve de fila.
+    if (e.currentTarget instanceof HTMLSelectElement && e.key !== "Enter") return;
     if (e.key === "ArrowDown" || (e.key === "Enter" && !e.shiftKey)) {
       e.preventDefault();
       if (r + 1 >= rows.length) onChange([...rows, Array(columns.length).fill("")]);
@@ -64,10 +70,10 @@ export function PasteGrid({
     } else if (e.key === "ArrowUp" || (e.key === "Enter" && e.shiftKey)) {
       e.preventDefault();
       if (r > 0) focusCell(r - 1, c);
-    } else if (e.key === "ArrowRight" && (e.target as HTMLInputElement).selectionStart === (e.target as HTMLInputElement).value.length && c + 1 < columns.length) {
+    } else if (e.key === "ArrowRight" && e.target instanceof HTMLInputElement && e.target.selectionStart === e.target.value.length && c + 1 < columns.length) {
       e.preventDefault();
       focusCell(r, c + 1);
-    } else if (e.key === "ArrowLeft" && (e.target as HTMLInputElement).selectionStart === 0 && c > 0) {
+    } else if (e.key === "ArrowLeft" && e.target instanceof HTMLInputElement && e.target.selectionStart === 0 && c > 0) {
       e.preventDefault();
       focusCell(r, c - 1);
     }
@@ -83,7 +89,7 @@ export function PasteGrid({
             <tr>
               <th className="w-10 px-2 py-2 text-right">#</th>
               {columns.map((c) => (
-                <th key={c.id} className="min-w-[140px] px-2 py-2 font-medium" title={c.hint}>
+                <th key={c.id} className={cn("px-2 py-2 font-medium", c.input === "select" ? "min-w-[260px]" : c.input === "multiselect" ? "min-w-[220px]" : "min-w-[140px]")} title={c.hint}>
                   {c.label}
                   {c.required && <span className="text-red-600"> *</span>}
                 </th>
@@ -99,22 +105,41 @@ export function PasteGrid({
               return (
                 <tr key={r} className={cn("border-t align-top", v?.status === "error" && !empty && "bg-red-50/60 dark:bg-red-950/30")}>
                   <td className="px-2 py-1 text-right text-xs tabular-nums text-muted-foreground">{r + 1}</td>
-                  {columns.map((col, c) => (
-                    <td key={col.id} className="p-0">
-                      <input
-                        data-r={r}
-                        data-c={c}
-                        aria-label={`Fila ${r + 1}, ${col.label}`}
-                        className="h-8 w-full border-0 bg-transparent px-2 text-sm outline-none focus:bg-accent/60 focus:ring-2 focus:ring-inset focus:ring-ring"
-                        value={row[c] ?? ""}
-                        placeholder={r === 0 && empty ? col.example : undefined}
-                        list={suggestions?.[col.id] ? `dl-${col.id}` : undefined}
-                        onChange={(e) => setCell(r, c, e.target.value)}
-                        onPaste={(e) => handlePaste(e, r, c)}
-                        onKeyDown={(e) => handleKey(e, r, c)}
-                      />
-                    </td>
-                  ))}
+                  {columns.map((col, c) => {
+                    const opts = col.optionsKey ? options?.[col.optionsKey] : undefined;
+                    const label = `Fila ${r + 1}, ${col.label}`;
+                    return (
+                      <td key={col.id} className="p-0">
+                        {col.input === "select" && opts ? (
+                          <SelectCell value={row[c] ?? ""} options={opts} onChange={(v) => setCell(r, c, v)} ariaLabel={label} dataR={r} dataC={c} onKeyDown={(e) => handleKey(e, r, c)} />
+                        ) : col.input === "multiselect" && opts ? (
+                          <MultiSelectCell
+                            value={row[c] ?? ""}
+                            options={opts}
+                            onChange={(v) => setCell(r, c, v)}
+                            ariaLabel={label}
+                            dataR={r}
+                            dataC={c}
+                            onPaste={(e) => handlePaste(e, r, c)}
+                            onKeyDown={(e) => handleKey(e, r, c)}
+                          />
+                        ) : (
+                          <input
+                            data-r={r}
+                            data-c={c}
+                            aria-label={label}
+                            className="h-8 w-full border-0 bg-transparent px-2 text-sm outline-none focus:bg-accent/60 focus:ring-2 focus:ring-inset focus:ring-ring"
+                            value={row[c] ?? ""}
+                            placeholder={r === 0 && empty ? col.example : undefined}
+                            list={suggestions?.[col.id] ? `dl-${col.id}` : undefined}
+                            onChange={(e) => setCell(r, c, e.target.value)}
+                            onPaste={(e) => handlePaste(e, r, c)}
+                            onKeyDown={(e) => handleKey(e, r, c)}
+                          />
+                        )}
+                      </td>
+                    );
+                  })}
                   <td className="px-2 py-1">
                     {!empty && v && (
                       <div className="space-y-0.5">

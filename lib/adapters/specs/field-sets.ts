@@ -30,6 +30,18 @@ export function parseSections(raw: string | undefined, allIds: string[]): { sect
   return { sections, errors };
 }
 
+/** Celda "Clase/Herramienta": "class_name" o "class_name | categoría/tipo". */
+export function parseClassCell(raw: string | undefined): { className: string; scope: string | null } {
+  const v = (raw ?? "").trim();
+  const i = v.indexOf(" | ");
+  if (i < 0) return { className: v, scope: null };
+  return { className: v.slice(0, i).trim(), scope: v.slice(i + 3).trim() || null };
+}
+
+export function templateCell(className: string, scope: string | null): string {
+  return scope ? `${className} | ${scope}` : className;
+}
+
 export const fieldSetsSpec: ObjectSpec = {
   type: "field_sets",
   label: "Field Sets",
@@ -39,13 +51,21 @@ export const fieldSetsSpec: ObjectSpec = {
   dependsOn: ["custom_fields"],
   columns: [
     { id: "name", label: "Nombre con [ID]", required: true, example: "[FS-001] Inspección de calidad" },
-    { id: "class_name", label: "Clase/Herramienta", required: true, example: "Observation", hint: "class_name de Procore (ver Gobierno para los valores existentes)" },
-    { id: "custom_fields", label: "Custom fields incluidos", required: true, example: "[CF-001];[CF-002]" },
+    {
+      id: "class_name",
+      label: "Clase/Herramienta",
+      required: true,
+      example: "Observation | Safety",
+      hint: "Herramienta y categoría/tipo del field set. Las opciones salen de los field sets sincronizados.",
+      input: "select",
+      optionsKey: "fieldSetTemplates",
+    },
+    { id: "custom_fields", label: "Custom fields incluidos", required: true, example: "[CF-001];[CF-002]", input: "multiselect", optionsKey: "customFields" },
     { id: "sections", label: "Secciones", example: "General", hint: "Opcional. “Nombre” o “Sección A: [CF-001] | Sección B: [CF-002]”" },
   ],
-  compareAttrs: ["class_name", "custom_fields"],
+  compareAttrs: ["class_name", "scope", "custom_fields"],
   natureAttr: "class_name",
-  attrLabels: { class_name: "Clase/Herramienta", custom_fields: "Custom fields", name: "Nombre" },
+  attrLabels: { class_name: "Clase/Herramienta", scope: "Categoría / tipo", custom_fields: "Custom fields", name: "Nombre" },
   parseRow(cells, ctx) {
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -53,10 +73,13 @@ export const fieldSetsSpec: ObjectSpec = {
     if (!cells.name?.trim()) errors.push("Falta el nombre.");
     else if (!parsed.id) errors.push("El nombre no incluye un [ID] entre corchetes al inicio.");
     else if (!isValidIdFormat(parsed.id)) errors.push(`ID “${parsed.id}” con formato inválido.`);
-    const className = cells.class_name?.trim() ?? "";
-    if (!className) errors.push("Falta la clase/herramienta (class_name).");
-    else if (ctx.fieldSetClasses?.length && !ctx.fieldSetClasses.includes(className)) {
-      warnings.push(`La clase “${className}” no aparece en los field sets sincronizados (${ctx.fieldSetClasses.join(", ")}).`);
+    const { className, scope } = parseClassCell(cells.class_name);
+    if (!className) errors.push("Falta la clase/herramienta.");
+    else {
+      const opts = ctx.options?.fieldSetTemplates;
+      if (opts?.length && !opts.some((o) => o.value.toLowerCase() === templateCell(className, scope).toLowerCase())) {
+        warnings.push(`“${templateCell(className, scope)}” no coincide con ningún field set sincronizado; el dry-run comprobará si existe una plantilla en cada instancia.`);
+      }
     }
     let ids = parseIdList(cells.custom_fields);
     const { sections, errors: secErrors } = parseSections(cells.sections, ids);
@@ -86,7 +109,7 @@ export const fieldSetsSpec: ObjectSpec = {
         key: parsed.id,
         stdId: parsed.id,
         name: formatName(parsed.id, parsed.text),
-        attrs: { class_name: className, custom_fields: uniq },
+        attrs: { class_name: className, scope, custom_fields: uniq },
         extra: { sections, sectionsExplicit: !!cells.sections?.trim() },
       },
     };

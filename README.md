@@ -136,9 +136,9 @@ Después, opciones de la lista (**LOV Entries**):
 ```
 y un **Field Set**:
 ```
-[FS-001] Inspección de calidad	Observation	[CF-001];[CF-002];[CF-007]	General
+[FS-001] Inspección de calidad	Observation | Quality	[CF-001];[CF-002];[CF-007]	General
 ```
-(la columna *Clase/Herramienta* es el `class_name` de Procore; en Gobierno → Field Sets ves los que ya existen. *Secciones*: vacío = “General”; `Sección A: [CF-001] | Sección B: [CF-002]` para varias.)
+(*Clase/Herramienta* es un desplegable con las combinaciones herramienta + categoría/tipo de los field sets sincronizados, con formato `class_name | categoría` — también se puede pegar así desde Excel; *Custom fields incluidos* es una selección múltiple de los custom fields sincronizados. *Secciones*: vacío = “General”; `Sección A: [CF-001] | Sección B: [CF-002]` para varias.)
 
 **Paso 3 — Remediar.** En Gobierno, selecciona filas (o abre una) y usa **Crear donde falta** o **Alinear atributos**: abre el mismo dry-run + confirmación con la definición de referencia (catálogo maestro → instancia ★ → consenso).
 
@@ -156,7 +156,7 @@ Plantillas CSV por tipo: botón **Plantilla CSV** en Cargar.
 4. **Orden de LOV.** `bulk_create` ordena la posición de forma descendente: la app envía las opciones en orden inverso y verifica el resultado. Las opciones nuevas quedan por encima de las existentes; si el orden no coincide se avisa en el resultado.
 5. **`label` obligatorio en el PATCH de custom fields.** Se reenvía el nombre local actual para no cambiar el idioma (salvo que se active “Sobrescribir también textos”).
 6. **`data_type` no se cambia.** Si un `[ID]` existe con otro tipo de dato se marca como conflicto (`OMITIR`); requiere intervención manual.
-7. **Field Sets: `fields` es obligatorio al crear.** Se copia del field set de referencia (remediación) o del field set *company default* de la misma clase en la instancia destino. Los `custom_field_sections` se envían con IDs numéricos resueltos por instancia a partir del `[ID]`. Si falta un custom field en el destino, el field set queda **bloqueado por dependencia** (crea primero el custom field).
+7. **Field Sets: se crean a partir de una plantilla de la misma herramienta y categoría.** Procore exige al crear la configuración de campos (`fields`, que debe cumplir el esquema de esa herramienta) y su ámbito (p. ej. `observations_category_id` para Observaciones). Como son locales a cada company, en cada instancia destino se toma como plantilla un field set existente con la misma *Clase/Herramienta* y categoría/tipo (preferentemente el *company default*) y se copian sus `fields` y su ámbito. Si en una instancia no existe ninguno de esa herramienta/categoría, el dry-run lo marca como `OMITIR` con la explicación. Los `custom_field_sections` se envían con IDs numéricos resueltos por instancia a partir del `[ID]`; si falta un custom field en el destino, queda **bloqueado por dependencia**.
 
 **Pendientes / por validar:**
 

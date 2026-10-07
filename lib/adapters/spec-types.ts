@@ -1,4 +1,4 @@
-import type { AttrValue, ColumnSpec, DesiredItem, ObjectType } from "@/lib/types";
+import type { AttrValue, ColumnSpec, DesiredItem, ObjectType, SelectOption } from "@/lib/types";
 
 export interface DataTypeInfo {
   dataType: string;
@@ -11,8 +11,8 @@ export interface ValidationContext {
   dataTypes?: DataTypeInfo[];
   /** IDs conocidos por tipo (unión de las instancias sincronizadas). */
   known?: Partial<Record<ObjectType, string[]>>;
-  /** Valores de class_name vistos en field sets sincronizados. */
-  fieldSetClasses?: string[];
+  /** Opciones de los desplegables (de los snapshots): fieldSetTemplates, customFields, lovCustomFields. */
+  options?: Partial<Record<string, SelectOption[]>>;
 }
 
 export interface RowParseResult {

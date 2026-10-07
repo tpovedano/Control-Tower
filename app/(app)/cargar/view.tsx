@@ -33,8 +33,8 @@ export function CargarView({ maxRows }: { maxRows: number }) {
     api<{ instances: PublicInstance[] }>("/api/instancias")
       .then((r) => setInstances(r.instances))
       .catch(() => setInstances([]));
-    api<{ known: ValidationContext["known"]; fieldSetClasses: string[] }>("/api/validation-context")
-      .then((r) => setCtx((c) => ({ ...c, known: r.known, fieldSetClasses: r.fieldSetClasses })))
+    api<{ known: ValidationContext["known"]; options: ValidationContext["options"] }>("/api/validation-context")
+      .then((r) => setCtx((c) => ({ ...c, known: r.known, options: r.options })))
       .catch(() => undefined);
   }, []);
 
@@ -88,8 +88,6 @@ export function CargarView({ maxRows }: { maxRows: number }) {
     const fromMeta = Array.from(new Set((ctx.dataTypes ?? []).flatMap((d) => d.variants)));
     suggestions.variant = fromMeta.length ? fromMeta : KNOWN_VARIANTS;
   }
-  if (type === "field_sets" && ctx.fieldSetClasses?.length) suggestions.class_name = ctx.fieldSetClasses;
-  if (type === "lov_entries" && ctx.known?.custom_fields) suggestions.parent = ctx.known.custom_fields.map((k) => `[${k}]`);
 
   return (
     <div className="space-y-5">
@@ -149,7 +147,14 @@ export function CargarView({ maxRows }: { maxRows: number }) {
             }}
           />
         )}
-        <PasteGrid columns={spec.columns} rows={rows} onChange={setRows} validation={validation} suggestions={suggestions} />
+        <PasteGrid columns={spec.columns} rows={rows} onChange={setRows} validation={validation} suggestions={suggestions} options={ctx.options} />
+        {spec.columns.some((c) => c.optionsKey) && (
+          <p className="text-xs text-muted-foreground">
+            Los desplegables se rellenan con lo sincronizado en Gobierno. Si falta algo, pulsa “Sincronizar / Leer instancias” allí.
+            {type === "field_sets" &&
+              " Clase/Herramienta = herramienta + categoría/tipo de un field set existente: en cada instancia destino se usa uno de esa misma herramienta como plantilla (Procore exige su configuración de campos)."}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <Badge color="green" icon="✅">
             {counts.valid} válidas

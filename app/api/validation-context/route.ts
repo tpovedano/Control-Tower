@@ -1,19 +1,52 @@
 import { route } from "@/lib/api";
-import { OBJECT_TYPES, type ObjectType } from "@/lib/types";
+import { LOV_DATA_TYPES } from "@/lib/adapters/specs/custom-fields";
+import { templateCell } from "@/lib/adapters/specs/field-sets";
+import { OBJECT_TYPES, type ObjectType, type SelectOption } from "@/lib/types";
 import { latestSnapshots } from "@/lib/services/engine";
+import { listInstances } from "@/lib/services/instances";
 
 export const dynamic = "force-dynamic";
 
-/** IDs conocidos (de los últimos snapshots) para validar dependencias en vivo. */
-export const GET = route(async () => {
-  const snaps = await latestSnapshots({ withItems: true, okOnly: true });
+/** IDs conocidos y opciones de los desplegables, a partir de los últimos snapshots (opcionalmente de unas instancias). */
+export const GET = route(async (req) => {
+  const only = req.nextUrl.searchParams.get("instanceIds")?.split(",").filter(Boolean);
+  const active = new Set((await listInstances()).map((i) => i.id));
+  const snaps = (await latestSnapshots({ withItems: true, okOnly: true })).filter((s) => active.has(s.instanceId) && (!only?.length || only.includes(s.instanceId)));
+
   const known: Partial<Record<ObjectType, string[]>> = {};
   for (const t of OBJECT_TYPES) {
     const s = snaps.filter((x) => x.objectType === t);
     if (s.length) known[t] = Array.from(new Set(s.flatMap((x) => x.items.map((i) => i.key).filter(Boolean) as string[])));
   }
-  const fieldSetClasses = Array.from(
-    new Set(snaps.filter((s) => s.objectType === "field_sets").flatMap((s) => s.items.map((i) => String(i.attrs.class_name ?? "")).filter(Boolean))),
-  ).sort();
-  return { known, fieldSetClasses };
+
+  // Custom fields gobernados: valor "[ID]", etiqueta "[ID] nombre" (primer nombre encontrado).
+  const cfs = new Map<string, { label: string; lov: boolean }>();
+  for (const s of snaps.filter((x) => x.objectType === "custom_fields")) {
+    for (const i of s.items) {
+      if (!i.key || cfs.has(i.key)) continue;
+      cfs.set(i.key, { label: `[${i.key}] ${i.text}`.trim(), lov: LOV_DATA_TYPES.includes(String(i.attrs.data_type)) });
+    }
+  }
+  const byKey = (a: SelectOption, b: SelectOption) => a.value.localeCompare(b.value);
+  const customFields: SelectOption[] = [...cfs].map(([k, v]) => ({ value: `[${k}]`, label: v.label })).sort(byKey);
+  const lovCustomFields: SelectOption[] = [...cfs].filter(([, v]) => v.lov).map(([k, v]) => ({ value: `[${k}]`, label: v.label })).sort(byKey);
+
+  // Clase/Herramienta: combinaciones class_name + categoría/tipo que existen; cuántas instancias las tienen.
+  const templates = new Map<string, { instances: Set<string>; example: string }>();
+  for (const s of snaps.filter((x) => x.objectType === "field_sets")) {
+    for (const i of s.items) {
+      const cls = i.attrs.class_name ? String(i.attrs.class_name) : "";
+      if (!cls) continue;
+      const value = templateCell(cls, i.attrs.scope ? String(i.attrs.scope) : null);
+      const t = templates.get(value) ?? { instances: new Set<string>(), example: i.name };
+      t.instances.add(s.instanceId);
+      templates.set(value, t);
+    }
+  }
+  const total = new Set(snaps.filter((x) => x.objectType === "field_sets").map((x) => x.instanceId)).size;
+  const fieldSetTemplates: SelectOption[] = [...templates]
+    .map(([value, t]) => ({ value, label: `${value}  —  en ${t.instances.size}/${total} instancia${total === 1 ? "" : "s"} (p. ej. “${t.example}”)` }))
+    .sort(byKey);
+
+  return { known, options: { customFields, lovCustomFields, fieldSetTemplates } };
 });

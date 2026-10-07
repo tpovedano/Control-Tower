@@ -89,8 +89,8 @@ describe("validateBatch", () => {
     expect(r.every((x) => x.status === "valid")).toBe(true);
   });
   it("field sets: lista de custom fields y secciones", () => {
-    const r = validateBatch("field_sets", [["[FS-1] Calidad", "Observation", "[CF-001];[CF-002]", "A: [CF-001] | B: [CF-002]"]]);
-    expect(r[0].desired?.attrs.custom_fields).toEqual(["CF-001", "CF-002"]);
+    const r = validateBatch("field_sets", [["[FS-1] Calidad", "Observation | Quality", "[CF-001];[CF-002]", "A: [CF-001] | B: [CF-002]"]]);
+    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observation", scope: "Quality", custom_fields: ["CF-001", "CF-002"] });
     expect(r[0].desired?.extra?.sections).toEqual([
       { name: "A", ids: ["CF-001"] },
       { name: "B", ids: ["CF-002"] },
