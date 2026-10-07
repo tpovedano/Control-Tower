@@ -15,6 +15,7 @@ interface Company {
   fieldSets: Obj[];
   inspectionTypes: Obj[];
   observationTypes: Obj[];
+  metadata?: Obj[];
 }
 
 let seq = 5000;
@@ -31,9 +32,10 @@ const companies: Record<string, Company> = {
     lovs: { 12: [{ id: 121, label: "Conforme [OK]", active: true, position: 2 }, { id: 122, label: "No conforme [NOK]", active: true, position: 1 }] },
     fieldSets: [
       { id: 31, name: "Predeterminado Observaciones Seguridad", class_name: "Observations::Item", category: "safety", company_default: true, fields: { name: { name: "name", visible: true, required: true }, description: { name: "description", visible: true, required: false } }, custom_field_sections: [] },
-      { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observations::Item", category: "quality", company_default: true, fields: { name: { name: "name", visible: true, required: true }, description: { name: "description", visible: true, required: false } }, custom_field_sections: [] },
+      { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observations::Item", category: "quality", company_default: true, fields: { name: { name: "name", visible: true, required: true }, description: { name: "description", visible: true, required: false, conditions: [{ field: "name", operator: "present" }] } }, custom_field_sections: [] },
       { id: 32, name: "Calidad [QE-FS-001]", class_name: "Observations::Item", category: "quality", fields: { name: { name: "name", visible: true, required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
     ],
+    metadata: [{ id: 901, custom_field_definition_id: 11, custom_fields_section_id: 301, host_type: "Observations::Item", source_type: "ConfigurableFieldSet", source_id: 32, position: 1 }],
     inspectionTypes: [{ id: 41, name: "Seguridad [HS-IT-001]", grouping: "HSE" }],
     observationTypes: [{ id: 51, name: "Seguridad [HS-OT-001]", category: "safety", active: true }],
   },
@@ -151,6 +153,27 @@ const server = http.createServer(async (req, res) => {
     return send(res, 201, created);
   }
 
+  // Custom field metadata (asociar un custom field a un field set)
+  if (/^\/rest\/v2\.0\/companies\/\d+\/custom_field_metadata$/.test(path)) {
+    const list = (c.metadata ??= []);
+    if (m === "GET") {
+      const fsIds = url.searchParams.getAll("filters[field_set_id][]").map(Number);
+      return page(fsIds.length ? list.filter((x) => fsIds.includes(Number(x.source_id))) : list, url, res, true);
+    }
+    const md = ((await body(req)).custom_field_metadatum ?? {}) as Obj;
+    const fs = c.fieldSets.find((x) => x.id === Number(md.source_id));
+    if (!fs || md.source_type !== "ConfigurableFieldSet" || !md.host_type || !md.custom_field_definition_id || md.position === undefined) {
+      return send(res, 422, { errors: { base: ["custom_field_definition_id, host_type, source_type, source_id y position son obligatorios"] } });
+    }
+    const sections = ((fs.custom_field_sections ??= []) as Obj[]);
+    let sec = sections.find((x) => x.id === Number(md.custom_fields_section_id)) ?? sections[0];
+    if (!sec) sections.push((sec = { id: nextId(), name: "General", custom_field_definition_ids: [] }));
+    (sec.custom_field_definition_ids as number[]).push(Number(md.custom_field_definition_id));
+    const created = { ...md, id: nextId(), custom_fields_section_id: sec.id };
+    list.push(created);
+    return send(res, 201, { data: created });
+  }
+
   // Field sets
   if (/^\/rest\/v2\.1\/companies\/\d+\/configurable_field_sets$/.test(path)) {
     // Como Procore: el listado no incluye "fields", las secciones ni (en este simulado) la clase: hay que pedir el detalle.
@@ -163,7 +186,8 @@ const server = http.createServer(async (req, res) => {
     if (!fs?.name || !fs.class_name) errs.push("name and class_name are required");
     else if (!["Observations::Item", "PunchItem", "Rfi::Header"].includes(String(fs.class_name))) errs.push("class_name is not included in the list");
     if (errs.length) return send(res, 422, { errors: { base: errs } });
-    const created = { ...fs, id: nextId(), custom_field_sections: ((b.custom_field_sections ?? []) as Obj[]).map((s) => ({ ...s, id: nextId() })) };
+    // Como el Procore real observado: ignora los custom fields de custom_field_sections al crear.
+    const created = { ...fs, id: nextId(), custom_field_sections: [{ id: nextId(), name: "General", custom_field_definition_ids: [] as number[] }] };
     c.fieldSets.push(created);
     return send(res, 201, { data: created });
   }
@@ -171,6 +195,8 @@ const server = http.createServer(async (req, res) => {
     const fs = c.fieldSets.find((x) => x.id === Number(mm![1]));
     if (!fs) return send(res, 404, { error: "not found" });
     if (m === "GET") return send(res, 200, { data: fs });
+    const hasConditional = Object.values((fs.fields ?? {}) as Record<string, Obj>).some((f) => f && typeof f === "object" && "conditions" in f);
+    if (hasConditional) return send(res, 422, { errors: ["You cannot use this endpoint on a field set with conditional fields."] });
     const b = await body(req);
     Object.assign(fs, b.configurable_field_set, { custom_field_sections: ((b.custom_field_sections ?? []) as Obj[]).map((s) => ({ ...s, id: s.id ?? nextId() })) });
     return send(res, 200, { data: fs });

@@ -169,6 +169,7 @@ describe("field sets adapter", () => {
         custom_field_sections: [{ id: 9, name: "General", custom_field_definition_ids: [502, 999] }],
       }),
       "POST /rest/v2.1/companies/7/configurable_field_sets": () => ({ id: 3 }),
+      "GET /rest/v2.1/companies/7/configurable_field_sets/3": () => ({ id: 3, custom_field_sections: [{ id: 30, name: "General", custom_field_definition_ids: [501, 502] }] }),
     });
     const items = await fieldSetsAdapter.list(ctx);
     expect(items.find((i) => i.key === "QE-FS-1")!.attrs).toEqual({ class_name: "Observations::Item", scope: "quality", custom_fields: ["#999", "QE-CF-2"] });
@@ -208,6 +209,7 @@ describe("field sets adapter", () => {
       [CF_LIST]: () => [{ id: 501, label: "A [QE-CF-1]", data_type: "string" }],
       "GET /rest/v2.1/companies/7/configurable_field_sets": () => [],
       "POST /rest/v2.1/companies/7/configurable_field_sets": () => ({ id: 3 }),
+      "GET /rest/v2.1/companies/7/configurable_field_sets/3": () => ({ id: 3, custom_field_sections: [{ id: 30, name: "General", custom_field_definition_ids: [501] }] }),
     });
     const desired = { key: "QE-FS-9", stdId: "QE-FS-9", name: "X [QE-FS-9]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1"] } };
     // Sin respaldo: bloqueado antes de escribir.
@@ -225,6 +227,86 @@ describe("field sets adapter", () => {
       class_name: "Observations::Item",
       fields: { name: { name: "name", visible: true, required: true } },
       category: "quality",
+    });
+  });
+
+  it("si Procore ignora las secciones al crear, añade los custom fields con custom_field_metadata (forma aprendida)", async () => {
+    const metadataPosts: unknown[] = [];
+    const { ctx, calls } = mockProcore({
+      [CF_LIST]: () => [
+        { id: 501, label: "A [QE-CF-1]", data_type: "string" },
+        { id: 502, label: "B [QE-CF-2]", data_type: "string" },
+      ],
+      "GET /rest/v2.1/companies/7/configurable_field_sets": () => [{ id: 1, name: "Default", company_default: true }],
+      "GET /rest/v2.1/companies/7/configurable_field_sets/1": () => ({
+        id: 1,
+        class_name: "Observations::Item",
+        category: "quality",
+        fields: { name: { name: "name", visible: true, required: true }, description: { name: "description", visible: true, required: false, conditions: [{ field: "name" }] } },
+      }),
+      "POST /rest/v2.1/companies/7/configurable_field_sets": () => ({ data: { id: 40 } }),
+      "GET /rest/v2.1/companies/7/configurable_field_sets/40": () => ({ id: 40, custom_field_sections: [{ id: 400, name: "General", custom_field_definition_ids: [] }] }),
+      "GET /rest/v2.0/companies/7/custom_field_metadata": (url) =>
+        url.searchParams.get("filters[field_set_id][]")
+          ? { data: [] }
+          : { data: [{ id: 1, custom_field_definition_id: 9, host_type: "Observations::Item", source_type: "ConfigurableFieldSet", source_id: 1, position: 1 }] },
+      "POST /rest/v2.0/companies/7/custom_field_metadata": (_u, init) => (metadataPosts.push(JSON.parse(String(init.body))), { data: { id: 77 } }),
+    });
+    const desired = { key: "QE-FS-5", stdId: "QE-FS-5", name: "N [QE-FS-5]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-2"] } };
+    const [r] = await fieldSetsAdapter.apply([{ desired, plan: { action: "CREATE", diffs: [] } }], ctx, { includeTexts: false });
+    expect(r).toMatchObject({ ok: true, remoteId: "40" });
+    expect(r.message).toMatch(/2 custom field\(s\) añadidos/);
+    // fields sin la configuración condicional de la plantilla
+    const post = calls.find((c) => c.method === "POST" && c.path.endsWith("configurable_field_sets"))!;
+    expect((post.body as { configurable_field_set: { fields: unknown } }).configurable_field_set.fields).toEqual({
+      name: { name: "name", visible: true, required: true },
+      description: { name: "description", visible: true, required: false },
+    });
+    expect(metadataPosts).toEqual([
+      { custom_field_metadatum: { custom_field_definition_id: 501, custom_fields_section_id: 400, host_type: "Observations::Item", source_type: "ConfigurableFieldSet", source_id: 40, position: 1, visible: true, required: false } },
+      { custom_field_metadatum: { custom_field_definition_id: 502, custom_fields_section_id: 400, host_type: "Observations::Item", source_type: "ConfigurableFieldSet", source_id: 40, position: 2, visible: true, required: false } },
+    ]);
+  });
+
+  it("actualizar añade solo los que faltan con custom_field_metadata y nunca usa el PATCH del field set", async () => {
+    const { ctx, calls } = mockProcore({
+      [CF_LIST]: () => [
+        { id: 501, label: "A [QE-CF-1]", data_type: "string" },
+        { id: 502, label: "B [QE-CF-2]", data_type: "string" },
+        { id: 503, label: "C [QE-CF-3]", data_type: "string" },
+      ],
+      "GET /rest/v2.1/companies/7/configurable_field_sets": () => [{ id: 12, name: "X [QE-FS-1]" }],
+      "GET /rest/v2.1/companies/7/configurable_field_sets/12": () => ({
+        id: 12,
+        class_name: "Observations::Item",
+        category: "quality",
+        fields: { name: { name: "name", visible: true } },
+        custom_field_sections: [{ id: 120, name: "General", custom_field_definition_ids: [501, 503] }],
+      }),
+      "GET /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: [] }),
+      "POST /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: { id: 1 } }),
+    });
+    const current = { key: "QE-FS-1", stdId: "QE-FS-1", name: "X [QE-FS-1]", text: "X", remoteId: "12", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-3"] } };
+    const desired = { key: "QE-FS-1", stdId: "QE-FS-1", name: "X [QE-FS-1]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-2"] } };
+    const plan = await fieldSetsAdapter.plan(desired, [current], ctx, { includeTexts: false });
+    expect(plan.action).toBe("UPDATE");
+    const [r] = await fieldSetsAdapter.apply([{ desired, plan, current }], ctx, { includeTexts: false });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/1 custom field\(s\) añadidos/);
+    expect(r.message).toMatch(/sobran \[QE-CF-3\]/);
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    const md = calls.filter((c) => c.method === "POST").map((c) => (c.body as { custom_field_metadatum: { custom_field_definition_id: number } }).custom_field_metadatum.custom_field_definition_id);
+    expect(md).toEqual([502]);
+    // Si ya tiene todos los pedidos (aunque sobre alguno): SIN CAMBIOS.
+    const superset = { ...current, attrs: { ...current.attrs, custom_fields: ["QE-CF-1", "QE-CF-2", "QE-CF-3"] } };
+    expect((await fieldSetsAdapter.plan(desired, [superset], ctx, { includeTexts: false })).action).toBe("NOCHANGE");
+  });
+
+  it("sanitizeFields deja solo propiedades básicas", async () => {
+    const { sanitizeFields } = await import("@/lib/adapters/server/field-sets");
+    expect(sanitizeFields({ a: { name: "a", visible: true, conditional_on: "b", conditions: [1], rules: { x: 1 } }, b: { visible: false }, c: "raro" })).toEqual({
+      a: { name: "a", visible: true },
+      b: { visible: false, name: "b" },
     });
   });
 
