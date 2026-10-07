@@ -328,12 +328,20 @@ async function attachedCustomFieldIds(fieldSetId: string, ctx: AdapterContext): 
 }
 
 /** Asocia al field set los custom fields que falten (POST custom_field_metadata). */
+interface AttachError {
+  customFieldId: string;
+  httpStatus?: number;
+  message: string;
+  response: unknown;
+}
+
+/** Asocia al field set los custom fields que falten (POST custom_field_metadata). */
 async function attachMissing(fieldSetId: string, className: string, wanted: string[], ctx: AdapterContext) {
   const { ids: present, sectionId, maxPosition } = await attachedCustomFieldIds(fieldSetId, ctx);
   const missing = wanted.filter((id) => !present.has(id));
   const shape = await metadataShape(className, ctx);
   const requests: unknown[] = [];
-  const errors: string[] = [];
+  const errors: AttachError[] = [];
   let position = maxPosition;
   for (const cfId of missing) {
     const body = {
@@ -349,10 +357,20 @@ async function attachMissing(fieldSetId: string, className: string, wanted: stri
       },
     };
     requests.push(body);
-    const r = await runWrite(body, () => ctx.client.post(E.customFields.metadata(ctx.companyId), body, { resource: "Custom Fields (metadatos)" }), idOf, "ok");
-    if (!r.ok) errors.push(`custom field ${cfId}: ${r.message}`);
+    const r = await runWrite(body, () => ctx.client.post(E.customFields.metadata(ctx.companyId), body, { resource: "custom_field_metadata (asociar custom field al field set)" }), idOf, "ok");
+    if (!r.ok) errors.push({ customFieldId: cfId, httpStatus: r.httpStatus, message: r.message, response: r.response });
   }
   return { present: [...present], added: missing.length - errors.length, errors, requests, shape };
+}
+
+/** Resumen legible de los fallos al asociar custom fields (con el [ID] estándar y el HTTP de cada uno). */
+function describeAttachErrors(errors: AttachError[], toStd: (remote: string) => string): string {
+  const groups = new Map<string, string[]>();
+  for (const e of errors) {
+    const k = `HTTP ${e.httpStatus ?? "?"}: ${e.message}`;
+    groups.set(k, [...(groups.get(k) ?? []), toStd(e.customFieldId)]);
+  }
+  return [...groups].map(([msg, ids]) => `${ids.join(", ")} → ${msg}`).join(" · ");
 }
 
 export const fieldSetsAdapter: ServerAdapter = {
@@ -441,17 +459,23 @@ export const fieldSetsAdapter: ServerAdapter = {
         }
         // Procore puede ignorar custom_field_sections al crear: se comprueba y se añaden los que falten.
         const att = await attachMissing(created.remoteId, className, wantedRemote, ctx);
-        const note = att.errors.length
-          ? ` — pero no se pudieron añadir ${att.errors.length} custom field(s): ${att.errors.join(" · ")}`
-          : att.added
-            ? ` — ${att.added} custom field(s) añadidos después de crear`
-            : "";
-        results.push({
-          ...created,
-          ok: att.errors.length === 0,
-          message: created.message + note,
-          request: att.requests.length ? { field_set: body, custom_field_metadata: att.requests } : body,
-        });
+        const toStd = (r: string) => describe([r]);
+        if (att.errors.length) {
+          results.push({
+            ok: false,
+            remoteId: created.remoteId,
+            httpStatus: att.errors[0].httpStatus,
+            message: `El field set SÍ se creó en Procore (HTTP 201, id ${created.remoteId}), pero no se pudieron asociar ${att.errors.length} custom field(s) con custom_field_metadata: ${describeAttachErrors(att.errors, toStd)}`,
+            request: { field_set: body, custom_field_metadata: att.requests },
+            response: { field_set_creado: created.response, errores_custom_field_metadata: att.errors },
+          });
+        } else {
+          results.push({
+            ...created,
+            message: created.message + (att.added ? ` — ${att.added} custom field(s) añadidos después de crear` : ""),
+            request: att.requests.length ? { field_set: body, custom_field_metadata: att.requests } : body,
+          });
+        }
       } else {
         // Actualizar = añadir los custom fields que falten mediante custom_field_metadata. No se usa el PATCH del
         // field set: Procore lo rechaza en field sets con campos condicionales y podría alterar su configuración.
@@ -461,10 +485,17 @@ export const fieldSetsAdapter: ServerAdapter = {
         const parts: string[] = [];
         if (att.added) parts.push(`${att.added} custom field(s) añadidos`);
         if (!att.added && !att.errors.length) parts.push("ya tenía todos los custom fields");
-        if (att.errors.length) parts.push(`errores: ${att.errors.join(" · ")}`);
+        if (att.errors.length) parts.push(`no se pudieron asociar ${att.errors.length} custom field(s) con custom_field_metadata: ${describeAttachErrors(att.errors, (r) => describe([r]))}`);
         if (extra.length) parts.push(`sobran ${describe(extra)}: no se quitan (v1 no elimina nada)`);
         if (options.includeTexts && current && current.name !== desired.name) parts.push("el nombre no se cambia en field sets (hazlo en Procore)");
-        results.push({ ok: att.errors.length === 0, remoteId: plan.remoteId, message: `Actualizado: ${parts.join("; ")}`, request: { custom_field_metadata: att.requests }, response: null });
+        results.push({
+          ok: att.errors.length === 0,
+          remoteId: plan.remoteId,
+          httpStatus: att.errors[0]?.httpStatus,
+          message: `${att.errors.length ? "No actualizado" : "Actualizado"}: ${parts.join("; ")}`,
+          request: { custom_field_metadata: att.requests },
+          response: att.errors.length ? { errores_custom_field_metadata: att.errors } : null,
+        });
       }
     }
     return results;

@@ -302,6 +302,27 @@ describe("field sets adapter", () => {
     expect((await fieldSetsAdapter.plan(desired, [superset], ctx, { includeTexts: false })).action).toBe("NOCHANGE");
   });
 
+  it("si falla la asociación, el resultado dice que el field set SÍ se creó y guarda el HTTP y la respuesta de cada fallo", async () => {
+    const { ctx } = mockProcore({
+      [CF_LIST]: () => [{ id: 501, label: "A [QE-CF-1]", data_type: "string" }],
+      "GET /rest/v2.1/companies/7/configurable_field_sets": () => [{ id: 1, name: "Default", company_default: true }],
+      "GET /rest/v2.1/companies/7/configurable_field_sets/1": () => ({ id: 1, class_name: "Observations::Item", category: "quality", fields: { name: { name: "name" } } }),
+      "POST /rest/v2.1/companies/7/configurable_field_sets": () => new Response(JSON.stringify({ data: { id: 40, name: "N [QE-FS-6]" } }), { status: 201 }),
+      "GET /rest/v2.1/companies/7/configurable_field_sets/40": () => ({ id: 40, custom_field_sections: [] }),
+      "GET /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: [] }),
+      "POST /rest/v2.0/companies/7/custom_field_metadata": () => new Response("{}", { status: 403 }),
+    });
+    const desired = { key: "QE-FS-6", stdId: "QE-FS-6", name: "N [QE-FS-6]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1"] } };
+    const [r] = await fieldSetsAdapter.apply([{ desired, plan: { action: "CREATE", diffs: [] } }], ctx, { includeTexts: false });
+    expect(r.ok).toBe(false);
+    expect(r.remoteId).toBe("40");
+    expect(r.httpStatus).toBe(403);
+    expect(r.message).toMatch(/SÍ se creó en Procore \(HTTP 201, id 40\)/);
+    expect(r.message).toMatch(/\[QE-CF-1\] → HTTP 403/);
+    expect(r.message).not.toMatch(/credencial no tiene acceso/);
+    expect(r.response).toMatchObject({ field_set_creado: { data: { id: 40 } }, errores_custom_field_metadata: [{ customFieldId: "501", httpStatus: 403 }] });
+  });
+
   it("sanitizeFields deja solo propiedades básicas", async () => {
     const { sanitizeFields } = await import("@/lib/adapters/server/field-sets");
     expect(sanitizeFields({ a: { name: "a", visible: true, conditional_on: "b", conditions: [1], rules: { x: 1 } }, b: { visible: false }, c: "raro" })).toEqual({

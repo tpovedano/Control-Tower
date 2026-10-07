@@ -63,7 +63,7 @@ export function errorFromResponse(status: number, body: unknown, resource?: stri
     case status === 403:
       return new ProcoreError(
         "forbidden",
-        `Permiso denegado: la credencial no tiene acceso a ${resource ?? "este recurso"} en esta company.`,
+        `Procore respondió 403 (prohibido)${what}${original ? "" : " sin dar motivo"}. Puede ser falta de permisos de la credencial o que Procore no permita esa operación sobre ese elemento.`,
         status,
         original,
         body,

@@ -65,7 +65,7 @@ describe("ProcoreClient", () => {
 
   it("mapea 403 / 422 con mensajes legibles y el original de Procore", async () => {
     const f403 = vi.fn(async () => json({ error: "Forbidden" }, 403));
-    await expect(makeClient(f403 as unknown as typeof fetch).get("/x", { resource: "Custom Fields" })).rejects.toThrow(/no tiene acceso a Custom Fields/);
+    await expect(makeClient(f403 as unknown as typeof fetch).get("/x", { resource: "Custom Fields" })).rejects.toThrow(/403 \(prohibido\) \(Custom Fields\)/);
     const f422 = vi.fn(async () => json({ errors: { label: ["has already been taken"] } }, 422));
     try {
       await makeClient(f422 as unknown as typeof fetch).post("/x", {});
