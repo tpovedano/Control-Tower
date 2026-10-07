@@ -1,6 +1,6 @@
 import { route } from "@/lib/api";
 import { LOV_DATA_TYPES } from "@/lib/adapters/specs/custom-fields";
-import { FIELD_SET_CLASSES, classLabel, templateCell } from "@/lib/adapters/specs/field-sets";
+import { FIELD_SET_CLASSES, OBSERVATION_CATEGORIES, normalizeClassName, templateCell } from "@/lib/adapters/specs/field-sets";
 import { OBJECT_TYPES, type ObjectType, type SelectOption } from "@/lib/types";
 import { latestSnapshots } from "@/lib/services/engine";
 import { listInstances } from "@/lib/services/instances";
@@ -31,30 +31,21 @@ export const GET = route(async (req) => {
   const customFields: SelectOption[] = [...cfs].map(([k, v]) => ({ value: `[${k}]`, label: v.label })).sort(byKey);
   const lovCustomFields: SelectOption[] = [...cfs].filter(([, v]) => v.lov).map(([k, v]) => ({ value: `[${k}]`, label: v.label })).sort(byKey);
 
-  // Clase/Herramienta: combinaciones class_name + categoría/tipo que existen; cuántas instancias las tienen.
-  const templates = new Map<string, { instances: Set<string>; example: string }>();
-  for (const s of snaps.filter((x) => x.objectType === "field_sets")) {
-    for (const i of s.items) {
-      const cls = i.attrs.class_name ? String(i.attrs.class_name) : "";
-      if (!cls) continue;
-      const value = templateCell(cls, i.attrs.scope ? String(i.attrs.scope) : null);
-      const t = templates.get(value) ?? { instances: new Set<string>(), example: i.name };
-      t.instances.add(s.instanceId);
-      templates.set(value, t);
+  // Clase/Herramienta: opciones fijas del contrato de Procore (Observaciones × categoría, Punch List, RFI),
+  // indicando en cuántas instancias hay un field set de esa herramienta del que copiar la configuración de campos.
+  const fsSnaps = snaps.filter((x) => x.objectType === "field_sets");
+  const withClass = (cls: string) => fsSnaps.filter((s) => s.items.some((i) => normalizeClassName(String(i.attrs.class_name ?? "")) === cls)).length;
+  const avail = (cls: string) => (fsSnaps.length ? `  —  plantilla en ${withClass(cls)}/${fsSnaps.length} instancia${fsSnaps.length === 1 ? "" : "s"}` : "");
+  const fieldSetTemplates: SelectOption[] = [];
+  for (const c of FIELD_SET_CLASSES) {
+    if (c.value === "Observations::Item") {
+      for (const cat of OBSERVATION_CATEGORIES) {
+        fieldSetTemplates.push({ value: templateCell(c.value, cat.value), label: `${c.label} · ${cat.label}  (${c.value} | ${cat.value})${avail(c.value)}` });
+      }
+    } else {
+      fieldSetTemplates.push({ value: c.value, label: `${c.label}  (${c.value})${avail(c.value)}` });
     }
   }
-  const total = new Set(snaps.filter((x) => x.objectType === "field_sets").map((x) => x.instanceId)).size;
-  const fieldSetTemplates: SelectOption[] = [...templates]
-    .filter(([value]) => FIELD_SET_CLASSES.some((c) => value === c.value || value.startsWith(`${c.value} | `)))
-    .map(([value, t]) => {
-      const [cls, scope] = value.split(" | ");
-      return { value, label: `${classLabel(cls)}${scope ? ` · ${scope}` : ""}  (${value})  —  en ${t.instances.size}/${total} instancia${total === 1 ? "" : "s"}, p. ej. “${t.example}”` };
-    });
-  // Las clases que no requieren categoría siempre se ofrecen, aunque no haya nada sincronizado.
-  for (const c of FIELD_SET_CLASSES) {
-    if (!c.requiresScope && !fieldSetTemplates.some((o) => o.value === c.value)) fieldSetTemplates.push({ value: c.value, label: `${c.label}  (${c.value})` });
-  }
-  fieldSetTemplates.sort(byKey);
 
   return { known, options: { customFields, lovCustomFields, fieldSetTemplates } };
 });

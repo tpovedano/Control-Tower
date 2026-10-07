@@ -109,7 +109,7 @@ describe("validateBatch", () => {
   });
   it("field sets: lista de custom fields y secciones", () => {
     const r = validateBatch("field_sets", [["Calidad [QE-FS-1]", "Observation | Quality", "[QE-CF-001];[QE-CF-002]", "A: [QE-CF-001] | B: [QE-CF-002]"]]);
-    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "Quality", custom_fields: ["QE-CF-001", "QE-CF-002"] });
+    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-001", "QE-CF-002"] });
     expect(r[0].desired?.extra?.sections).toEqual([
       { name: "A", ids: ["QE-CF-001"] },
       { name: "B", ids: ["QE-CF-002"] },
@@ -128,6 +128,9 @@ describe("validateBatch", () => {
     expect(cls[1].status).toBe("valid");
     expect(cls[2].desired?.attrs.class_name).toBe("Rfi::Header");
     expect(cls[3].messages.join()).toMatch(/no válida/);
+    const cat = validateBatch("field_sets", [["E [QE-FS-7]", "Observaciones | Inventada", "[QE-CF-1]"], ["F [QE-FS-8]", "Observaciones | Calidad", "[QE-CF-1]"]]);
+    expect(cat[0].messages.join()).toMatch(/Categoría de observación/);
+    expect(cat[1].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "quality" });
   });
   it("inspection types con disciplina en su columna", () => {
     const r = validateBatch("inspection_types", [["Seguridad [IT-001]", "HSE", "HS"]]);

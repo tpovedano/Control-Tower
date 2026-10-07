@@ -141,64 +141,91 @@ describe("field sets adapter", () => {
     expect(extractSections({ fields: { custom_field_8: { visible: true }, title: {} } })[0].remoteIds).toEqual(["8"]);
   });
 
-  it("normaliza (con categoría) y crea usando como plantilla un field set de la misma herramienta y categoría", async () => {
+  it("Observaciones: lee la categoría de `category` y crea con category + fields de una plantilla de la misma herramienta", async () => {
     const { ctx, calls } = mockProcore({
       [CF_LIST]: () => [
-        { id: 501, label: "[CF-1] A", data_type: "string" },
-        { id: 502, label: "[CF-2] B", data_type: "datetime" },
+        { id: 501, label: "A [QE-CF-1]", data_type: "string" },
+        { id: 502, label: "B [QE-CF-2]", data_type: "datetime" },
       ],
-      // El listado no trae "fields": hay que pedir el detalle de la plantilla.
+      // El listado no trae fields, secciones ni clase: se pide el detalle de cada uno.
       "GET /rest/v2.1/companies/7/configurable_field_sets": () => [
-        { id: 1, name: "Default Safety", class_name: "Observation", company_default: true, observations_category: { id: 70, name: "Safety" }, observations_category_id: 70 },
-        { id: 4, name: "Default Quality", class_name: "Observation", company_default: true, observations_category: { id: 80, name: "Quality" }, observations_category_id: 80 },
-        { id: 2, name: "[FS-1] Calidad", class_name: "Observation", observations_category_id: 80, observations_category: { id: 80, name: "Quality" } },
+        { id: 1, name: "Default Safety", company_default: true },
+        { id: 2, name: "Calidad [QE-FS-1]" },
       ],
-      "GET /rest/v2.1/companies/7/configurable_field_sets/1": () => ({ id: 1, fields: { title: { required: true } }, custom_field_sections: [] }),
-      "GET /rest/v2.1/companies/7/configurable_field_sets/4": () => ({ id: 4, fields: { title: { required: true }, description: { visible: true } }, custom_field_sections: [], schema_id: 9 }),
-      "GET /rest/v2.1/companies/7/configurable_field_sets/2": () => ({ id: 2, custom_field_sections: [{ id: 9, name: "General", custom_field_definition_ids: [502, 999] }] }),
+      "GET /rest/v2.1/companies/7/configurable_field_sets/1": () => ({
+        id: 1,
+        class_name: "Observations::Item",
+        category: "safety",
+        observations_category_id: 70,
+        schema_id: "s-1",
+        fields: { name: { name: "name", visible: true, required: true } },
+        custom_field_sections: [],
+      }),
+      "GET /rest/v2.1/companies/7/configurable_field_sets/2": () => ({
+        id: 2,
+        class_name: "Observations::Item",
+        category: "Quality",
+        fields: { name: { name: "name", visible: true, required: true } },
+        custom_field_sections: [{ id: 9, name: "General", custom_field_definition_ids: [502, 999] }],
+      }),
       "POST /rest/v2.1/companies/7/configurable_field_sets": () => ({ id: 3 }),
     });
     const items = await fieldSetsAdapter.list(ctx);
-    const fs1 = items.find((i) => i.key === "FS-1")!;
-    expect(fs1.attrs).toEqual({ class_name: "Observations::Item", scope: "Quality", custom_fields: ["#999", "CF-2"] });
+    expect(items.find((i) => i.key === "QE-FS-1")!.attrs).toEqual({ class_name: "Observations::Item", scope: "quality", custom_fields: ["#999", "QE-CF-2"] });
 
+    // Categoría "warranty": no hay plantilla de esa categoría, pero sí de la herramienta → se copian sus fields, no su categoría/ids.
     const desired = {
-      key: "FS-2",
-      stdId: "FS-2",
-      name: "[FS-2] Nuevo",
-      attrs: { class_name: "Observation", scope: "quality", custom_fields: ["CF-1", "CF-2"] },
-      extra: { sections: [{ name: "General", ids: ["CF-1", "CF-2"] }] },
+      key: "QE-FS-2",
+      stdId: "QE-FS-2",
+      name: "Nuevo [QE-FS-2]",
+      attrs: { class_name: "Observations::Item", scope: "warranty", custom_fields: ["QE-CF-1", "QE-CF-2"] },
+      extra: { sections: [{ name: "General", ids: ["QE-CF-1", "QE-CF-2"] }] },
     };
-    const deps = await fieldSetsAdapter.dependencies!(desired, ctx);
-    expect(deps).toEqual({ missing: [] });
+    expect(await fieldSetsAdapter.dependencies!(desired, ctx)).toEqual({ missing: [] });
     const [r] = await fieldSetsAdapter.apply([{ desired, plan: { action: "CREATE", diffs: [] } }], ctx, { includeTexts: false });
     expect(r.ok).toBe(true);
-    expect(r.message).toContain("Default Quality");
     const post = calls.find((c) => c.method === "POST")!;
     expect(post.body).toEqual({
       configurable_field_set: {
-        name: "[FS-2] Nuevo",
+        name: "Nuevo [QE-FS-2]",
         class_name: "Observations::Item",
-        fields: { title: { required: true }, description: { visible: true } },
-        observations_category_id: 80,
-        schema_id: 9,
+        fields: { name: { name: "name", visible: true, required: true } },
+        category: "warranty",
+        schema_id: "s-1",
       },
       custom_field_sections: [{ name: "General", custom_field_definition_ids: [501, 502] }],
     });
+
+    // Misma categoría que la plantilla → también se copia su observations_category_id.
+    const same = { ...desired, key: "QE-FS-3", stdId: "QE-FS-3", name: "Seg [QE-FS-3]", attrs: { ...desired.attrs, scope: "safety" } };
+    await fieldSetsAdapter.apply([{ desired: same, plan: { action: "CREATE", diffs: [] } }], ctx, { includeTexts: false });
+    const post2 = calls.filter((c) => c.method === "POST")[1];
+    expect((post2.body as { configurable_field_set: Record<string, unknown> }).configurable_field_set).toMatchObject({ category: "safety", observations_category_id: 70 });
   });
 
-  it("sin plantilla de esa herramienta/categoría → bloqueado antes de escribir", async () => {
+  it("sin field sets de esa herramienta en la instancia → usa los fields de otra instancia (respaldo)", async () => {
     const { ctx, calls } = mockProcore({
-      [CF_LIST]: () => [{ id: 501, label: "[CF-1] A", data_type: "string" }],
-      "GET /rest/v2.1/companies/7/configurable_field_sets": () => [{ id: 1, name: "Default Safety", class_name: "Observation", company_default: true, observations_category: { id: 70, name: "Safety" } }],
-      "GET /rest/v2.1/companies/7/configurable_field_sets/1": () => ({ id: 1, fields: { title: {} } }),
+      [CF_LIST]: () => [{ id: 501, label: "A [QE-CF-1]", data_type: "string" }],
+      "GET /rest/v2.1/companies/7/configurable_field_sets": () => [],
+      "POST /rest/v2.1/companies/7/configurable_field_sets": () => ({ id: 3 }),
     });
-    const desired = { key: "FS-9", stdId: "FS-9", name: "[FS-9] X", attrs: { class_name: "Observation", scope: "Warranty", custom_fields: ["CF-1"] } };
-    const deps = await fieldSetsAdapter.dependencies!(desired, ctx);
-    expect(deps.message).toMatch(/plantilla/);
+    const desired = { key: "QE-FS-9", stdId: "QE-FS-9", name: "X [QE-FS-9]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1"] } };
+    // Sin respaldo: bloqueado antes de escribir.
+    expect((await fieldSetsAdapter.dependencies!(desired, ctx)).message).toMatch(/configuración de campos/);
     const plan = await fieldSetsAdapter.plan(desired, await fieldSetsAdapter.list(ctx), ctx, { includeTexts: false });
     expect(plan.action).toBe("SKIP");
-    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    // Con respaldo (otra instancia sincronizada): se crea.
+    ctx.fieldSetFieldsFallback = async (cls) => (cls === "Observations::Item" ? { name: { name: "name", visible: true, required: true } } : null);
+    expect(await fieldSetsAdapter.dependencies!(desired, ctx)).toEqual({ missing: [] });
+    const [r] = await fieldSetsAdapter.apply([{ desired, plan: { action: "CREATE", diffs: [] } }], ctx, { includeTexts: false });
+    expect(r).toMatchObject({ ok: true });
+    expect(r.message).toMatch(/otra instancia/);
+    expect((calls.find((c) => c.method === "POST")!.body as { configurable_field_set: Record<string, unknown> }).configurable_field_set).toEqual({
+      name: "X [QE-FS-9]",
+      class_name: "Observations::Item",
+      fields: { name: { name: "name", visible: true, required: true } },
+      category: "quality",
+    });
   });
 
   it("extractScope y parseClassCell", async () => {
@@ -208,7 +235,9 @@ describe("field sets adapter", () => {
     expect(extractScope({ observations_category_id: 3 })).toEqual({ kind: "observations_category", id: "3", name: null });
     expect(extractScope({ category: "safety" })).toEqual({ kind: "category", id: null, name: "safety" });
     expect(extractScope({})).toBeNull();
-    expect(parseClassCell("Observation | Safety")).toEqual({ className: "Observations::Item", scope: "Safety" });
+    expect(parseClassCell("Observation | Safety")).toEqual({ className: "Observations::Item", scope: "safety" });
+    expect(parseClassCell("Observaciones | Trabajo pendiente")).toEqual({ className: "Observations::Item", scope: "work_to_complete" });
+    expect(parseClassCell("Observations::Item | Garantía")).toEqual({ className: "Observations::Item", scope: "warranty" });
     expect(parseClassCell("Observations::Item")).toEqual({ className: "Observations::Item", scope: null });
     expect(parseClassCell("punch list")).toEqual({ className: "PunchItem", scope: null });
     expect(parseClassCell("RFI")).toEqual({ className: "Rfi::Header", scope: null });

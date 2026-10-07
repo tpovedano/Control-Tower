@@ -3,7 +3,8 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import type { InstanceRow, RunItemRow, RunRow } from "@/lib/db/schema";
 import { getAdapter } from "@/lib/adapters/server";
-import { newContext, type ApplyInput, type ApplyResult } from "@/lib/adapters/server/types";
+import { newContext, type AdapterContext, type ApplyInput, type ApplyResult } from "@/lib/adapters/server/types";
+import { normalizeClassName } from "@/lib/adapters/specs/field-sets";
 import { getSpec } from "@/lib/adapters/specs";
 import { toErrorInfo } from "@/lib/procore/errors";
 import type { DesiredItem, NormalizedItem, ObjectType, PlanOptions, PlanResult } from "@/lib/types";
@@ -70,6 +71,25 @@ export async function catalogMap(objectType: ObjectType): Promise<Map<string, No
   return new Map(rows.map((r) => [r.key, r.item as NormalizedItem]));
 }
 
+/** Añade al contexto los respaldos que necesitan datos de otras instancias (snapshots). */
+function withFallbacks(ctx: AdapterContext): AdapterContext {
+  let cache: Promise<LatestSnapshot[]> | null = null;
+  ctx.fieldSetFieldsFallback = async (className) => {
+    cache ??= latestSnapshots({ objectType: "field_sets", withItems: true, okOnly: true });
+    const cls = normalizeClassName(className);
+    for (const snap of await cache) {
+      for (const item of snap.items) {
+        const fields = item.extra?.fields;
+        if (normalizeClassName(String(item.attrs.class_name ?? "")) === cls && fields && typeof fields === "object" && Object.keys(fields).length) {
+          return fields as Record<string, unknown>;
+        }
+      }
+    }
+    return null;
+  };
+  return ctx;
+}
+
 // ---------------- Runs (dry-run + ejecución) ----------------
 
 export async function createRun(args: {
@@ -130,7 +150,7 @@ export async function planRunInstance(run: RunRow, instanceId: string): Promise<
   const instance = await getInstance(instanceId);
   const objectType = run.objectType as ObjectType;
   const adapter = getAdapter(objectType);
-  const ctx = newContext(clientFor(instance));
+  const ctx = withFallbacks(newContext(clientFor(instance)));
   const existing = await adapter.list(ctx);
   const desired = run.desired as DesiredItem[];
   const options = run.options as PlanOptions;
@@ -204,7 +224,7 @@ export async function executeItems(runId: string, instanceId: string, itemIds: s
   const objectType = run.objectType as ObjectType;
   const adapter = getAdapter(objectType);
   const spec = getSpec(objectType);
-  const ctx = newContext(clientFor(instance));
+  const ctx = withFallbacks(newContext(clientFor(instance)));
   const desiredAll = run.desired as DesiredItem[];
   const options = run.options as PlanOptions;
 

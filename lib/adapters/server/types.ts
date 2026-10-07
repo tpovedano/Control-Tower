@@ -8,6 +8,12 @@ export interface AdapterContext {
   companyId: string;
   /** Memo por petición (p. ej. la lista de custom fields la necesitan LOV y field sets). */
   memo: Map<string, Promise<unknown>>;
+  /**
+   * Respaldo para crear field sets cuando la instancia no tiene ninguno de esa herramienta: devuelve la
+   * configuración de campos ("fields") de esa clase tomada de otra instancia sincronizada (el esquema
+   * depende de la herramienta, no de la company).
+   */
+  fieldSetFieldsFallback?: (className: string) => Promise<Record<string, unknown> | null>;
 }
 
 export function newContext(client: ProcoreClient): AdapterContext {

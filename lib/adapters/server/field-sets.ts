@@ -4,7 +4,7 @@ import { extractObject } from "@/lib/procore/client";
 import { mapLimit } from "@/lib/procore/semaphore";
 import { planItem } from "@/lib/diff/plan";
 import type { NormalizedItem } from "@/lib/types";
-import { fieldSetsSpec, normalizeClassName, type SectionSpec } from "../specs/field-sets";
+import { fieldSetsSpec, normalizeClassName, normalizeObservationCategory, type SectionSpec } from "../specs/field-sets";
 import { idOf, runWrite } from "./run-apply";
 import { listCustomFields } from "./custom-fields";
 import { memo, str, type AdapterContext, type ApplyResult, type ServerAdapter } from "./types";
@@ -121,6 +121,9 @@ function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, Normali
   }));
   const allIds = Array.from(new Set(sections.flatMap((s) => s.ids))).sort();
   const scope = extractScope(raw);
+  const className = normalizeClassName(str(raw.class_name ?? raw.type ?? raw.klass)) || null;
+  // En Observaciones el ámbito es la categoría ("quality", "safety"…), que Procore guarda en `category`.
+  const obsCategory = className === "Observations::Item" ? normalizeObservationCategory(typeof raw.category === "string" ? raw.category : null) : null;
   return {
     key: p.id,
     stdId: p.id,
@@ -128,8 +131,8 @@ function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, Normali
     text: p.text,
     remoteId: String(raw.id),
     attrs: {
-      class_name: normalizeClassName(str(raw.class_name ?? raw.type ?? raw.klass)) || null,
-      scope: scopeLabel(scope),
+      class_name: className,
+      scope: obsCategory ?? scopeLabel(scope),
       custom_fields: allIds,
     },
     extra: {
@@ -144,10 +147,9 @@ function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, Normali
 async function listRaw(ctx: AdapterContext) {
   return memo(ctx, "field_sets_raw", async () => {
     const list = await ctx.client.paginate<Record<string, unknown>>(E.fieldSets.list(ctx.companyId), { resource: "Field Sets" });
-    // El detalle trae las secciones/campos completos; se pide solo para los gobernados (con [ID]) y los default.
+    // El listado no trae "fields" ni las secciones (y a veces ni la clase): se pide el detalle de cada uno.
     return mapLimit(list, 3, async (fs) => {
-      const governed = !!parseName(String(fs.name ?? "")).id || fs.company_default === true;
-      if (!governed || fs.custom_field_sections) return fs;
+      if (fs.custom_field_sections && fs.fields && fs.class_name) return fs;
       try {
         const res = await ctx.client.get(E.fieldSets.show(ctx.companyId, String(fs.id)), { resource: "Field Sets" });
         return { ...fs, ...extractObject<Record<string, unknown>>(res.data) };
@@ -206,14 +208,19 @@ export function mergeSections(existing: SectionInfo[], desiredIds: string[], exp
   return result;
 }
 
-/** Busca en la instancia destino un field set de la misma clase y ámbito que sirva de plantilla. */
-async function findTemplate(className: string, scope: string | null, ctx: AdapterContext): Promise<NormalizedItem | null> {
+/**
+ * Plantilla en la instancia destino: un field set de la misma herramienta (class_name), del que se copia la
+ * configuración de campos. Se prefiere el de la misma categoría/tipo y el company default.
+ */
+async function findTemplate(className: string, scope: string | null, ctx: AdapterContext): Promise<{ template: NormalizedItem; sameScope: boolean } | null> {
   const all = await listFieldSets(ctx);
   const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
   const cls = normalizeClassName(className);
-  const candidates = all.filter((f) => f.attrs.class_name === cls && (scope ? norm(f.attrs.scope) === norm(scope) : true));
-  if (!candidates.length) return null;
-  return candidates.find((c) => c.extra?.company_default === true) ?? candidates.find((c) => !c.key) ?? candidates[0];
+  const sameClass = all.filter((f) => f.attrs.class_name === cls);
+  if (!sameClass.length) return null;
+  const sameScope = scope ? sameClass.filter((f) => norm(f.attrs.scope) === norm(scope)) : [];
+  const pick = (list: NormalizedItem[]) => list.find((c) => c.extra?.company_default === true) ?? list.find((c) => !c.key) ?? list[0];
+  return sameScope.length ? { template: pick(sameScope), sameScope: true } : { template: pick(sameClass), sameScope: false };
 }
 
 async function templateRaw(template: NormalizedItem, ctx: AdapterContext): Promise<Record<string, unknown>> {
@@ -224,8 +231,24 @@ async function templateRaw(template: NormalizedItem, ctx: AdapterContext): Promi
   return { ...listed, ...extractObject<Record<string, unknown>>(res.data) };
 }
 
-function templateMissingMessage(className: string, scope: string | null) {
-  return `No hay en esta instancia ningún field set de “${templateValue(className, scope)}” que sirva de plantilla. Procore exige la configuración de campos y el ámbito propios de esa herramienta: crea (o activa) uno de esa herramienta/categoría en Procore, sincroniza y vuelve a intentarlo.`;
+function hasFields(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length > 0;
+}
+
+function templateMissingMessage(className: string) {
+  return `No hay ningún field set de “${className}” (ni en esta instancia ni en las sincronizadas) del que copiar la configuración de campos que exige Procore. Crea uno de esa herramienta en Procore (basta el predeterminado), sincroniza en Gobierno y vuelve a intentarlo.`;
+}
+
+/** Configuración de campos para crear: de la plantilla local o, si no hay, de otra instancia sincronizada. */
+async function resolveFields(className: string, scope: string | null, ctx: AdapterContext) {
+  const local = await findTemplate(className, scope, ctx);
+  if (local) {
+    const raw = await templateRaw(local.template, ctx);
+    if (hasFields(raw.fields)) return { fields: raw.fields, raw, sameScope: local.sameScope, source: `plantilla “${local.template.name}”` };
+  }
+  const remote = ctx.fieldSetFieldsFallback ? await ctx.fieldSetFieldsFallback(normalizeClassName(className)) : null;
+  if (hasFields(remote)) return { fields: remote, raw: null, sameScope: false, source: "otra instancia sincronizada" };
+  return null;
 }
 
 export const fieldSetsAdapter: ServerAdapter = {
@@ -238,8 +261,11 @@ export const fieldSetsAdapter: ServerAdapter = {
     if (ambiguous.length) return { missing, message: `Conflicto: custom fields con ID repetido en esta instancia: ${ambiguous.join(", ")}.` };
     if (missing.length) return { missing };
     const exists = (await listFieldSets(ctx)).some((f) => f.key === desired.key);
-    if (!exists && !(await findTemplate(String(desired.attrs.class_name), (desired.attrs.scope as string) ?? null, ctx))) {
-      return { missing: [], message: templateMissingMessage(String(desired.attrs.class_name), (desired.attrs.scope as string) ?? null) };
+    if (!exists) {
+      const cls = String(desired.attrs.class_name);
+      const local = await findTemplate(cls, (desired.attrs.scope as string) ?? null, ctx);
+      const remote = !local && ctx.fieldSetFieldsFallback ? await ctx.fieldSetFieldsFallback(normalizeClassName(cls)) : null;
+      if (!local && !hasFields(remote)) return { missing: [], message: templateMissingMessage(cls) };
     }
     return { missing: [] };
   },
@@ -263,30 +289,33 @@ export const fieldSetsAdapter: ServerAdapter = {
         custom_field_definition_ids: s.ids.filter((id) => map.has(id)).map((id) => Number(map.get(id))),
       });
       if (plan.action === "CREATE") {
-        const className = String(desired.attrs.class_name);
+        const className = normalizeClassName(String(desired.attrs.class_name));
         const scope = (desired.attrs.scope as string) ?? null;
-        const template = await findTemplate(className, scope, ctx);
-        if (!template) {
-          results.push({ ok: false, message: templateMissingMessage(className, scope), request: null, response: null });
-          continue;
-        }
-        let tmpl: Record<string, unknown>;
+        let resolved;
         try {
-          tmpl = await templateRaw(template, ctx);
+          resolved = await resolveFields(className, scope, ctx);
         } catch (e) {
-          results.push({ ok: false, message: `No se pudo leer la plantilla “${template.name}”: ${(e as Error).message}`, request: null, response: null });
+          results.push({ ok: false, message: `No se pudo leer la plantilla: ${(e as Error).message}`, request: null, response: null });
           continue;
         }
-        // Se copian de la plantilla (de ESTA instancia) la configuración de campos y el ámbito: son locales a cada company.
-        const scopeAttrs: Record<string, unknown> = {};
-        for (const k of SCOPE_KEYS) if (tmpl[k] !== null && tmpl[k] !== undefined && tmpl[k] !== "") scopeAttrs[k] = tmpl[k];
-        const info = template.extra?.scopeInfo as FieldSetScope | null;
-        if (info?.id && info.kind !== "category" && !scopeAttrs[`${info.kind}_id`]) scopeAttrs[`${info.kind}_id`] = info.id;
-        const body = {
-          configurable_field_set: { name: desired.name, class_name: normalizeClassName(className), fields: tmpl.fields ?? {}, ...scopeAttrs },
-          custom_field_sections: desiredSections(desired.extra, ids).map(toSection),
-        };
-        results.push(await runWrite(body, () => ctx.client.post(E.fieldSets.create(ctx.companyId), body, { resource: "Field Sets" }), idOf, `Creado (plantilla: “${template.name}”)`));
+        if (!resolved) {
+          results.push({ ok: false, message: templateMissingMessage(className), request: null, response: null });
+          continue;
+        }
+        // Cuerpo según el contrato de POST /rest/v2.1/companies/{id}/configurable_field_sets.
+        const set: Record<string, unknown> = { name: desired.name, class_name: className, fields: resolved.fields };
+        if (className === "Observations::Item" && scope) set.category = scope;
+        const tmpl = resolved.raw;
+        if (tmpl) {
+          // El ámbito local (ids de categoría/tipo) solo se copia si la plantilla es de la misma categoría/tipo.
+          if (resolved.sameScope) {
+            for (const k of SCOPE_KEYS) if (k !== "schema_id" && k !== "category" && tmpl[k] !== null && tmpl[k] !== undefined && tmpl[k] !== "") set[k] = tmpl[k];
+          }
+          if (tmpl.schema_id !== null && tmpl.schema_id !== undefined && tmpl.schema_id !== "") set.schema_id = tmpl.schema_id;
+          if (className !== "Observations::Item" && resolved.sameScope && typeof tmpl.category === "string") set.category = tmpl.category;
+        }
+        const body = { configurable_field_set: set, custom_field_sections: desiredSections(desired.extra, ids).map(toSection) };
+        results.push(await runWrite(body, () => ctx.client.post(E.fieldSets.create(ctx.companyId), body, { resource: "Field Sets" }), idOf, `Creado (campos de ${resolved.source})`));
       } else {
         const existingSections = (current?.extra?.sections as SectionInfo[]) ?? [];
         let currentRaw = raws.find((r) => String(r.id) === plan.remoteId);

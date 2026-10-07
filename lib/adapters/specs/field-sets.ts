@@ -51,6 +51,39 @@ export function normalizeClassName(raw: string | null | undefined): string {
   return v;
 }
 
+/**
+ * Categorías de Observaciones (configurable_field_set.category). Coinciden con las columnas de field set por
+ * defecto de la company ("<categoría>_configurable_field_set").
+ */
+export const OBSERVATION_CATEGORIES = [
+  { value: "quality", label: "Calidad" },
+  { value: "safety", label: "Seguridad" },
+  { value: "commissioning", label: "Puesta en marcha" },
+  { value: "warranty", label: "Garantía" },
+  { value: "work_to_complete", label: "Trabajo pendiente" },
+] as const;
+
+/** "Quality", "Calidad", "work to complete"… → valor de Procore ("quality", "work_to_complete"…). */
+export function normalizeObservationCategory(raw: string | null | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  const k = v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+/g, "_");
+  const byValue = OBSERVATION_CATEGORIES.find((c) => c.value === k);
+  if (byValue) return byValue.value;
+  const byLabel = OBSERVATION_CATEGORIES.find((c) => c.label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+/g, "_") === k);
+  if (byLabel) return byLabel.value;
+  if (k.startsWith("calidad")) return "quality";
+  if (k.startsWith("seguridad")) return "safety";
+  if (k.startsWith("puesta") || k.startsWith("commission")) return "commissioning";
+  if (k.startsWith("garant")) return "warranty";
+  if (k.startsWith("trabajo") || k.startsWith("work")) return "work_to_complete";
+  return k;
+}
+
+export function observationCategoryLabel(value: string): string {
+  return OBSERVATION_CATEGORIES.find((c) => c.value === value)?.label ?? value;
+}
+
 export function classLabel(className: string): string {
   return FIELD_SET_CLASSES.find((c) => c.value === className)?.label ?? className;
 }
@@ -60,7 +93,10 @@ export function parseClassCell(raw: string | undefined): { className: string; sc
   const v = (raw ?? "").trim();
   const i = v.indexOf(" | ");
   if (i < 0) return { className: normalizeClassName(v), scope: null };
-  return { className: normalizeClassName(v.slice(0, i)), scope: v.slice(i + 3).trim() || null };
+  const className = normalizeClassName(v.slice(0, i));
+  const rawScope = v.slice(i + 3).trim() || null;
+  // En Observaciones el ámbito es la categoría (category): se normaliza al valor de Procore.
+  return { className, scope: className === "Observations::Item" ? normalizeObservationCategory(rawScope) : rawScope };
 }
 
 export function templateCell(className: string, scope: string | null): string {
@@ -80,8 +116,8 @@ export const fieldSetsSpec: ObjectSpec = {
       id: "class_name",
       label: "Clase/Herramienta",
       required: true,
-      example: "Observations::Item | Quality",
-      hint: "Observations::Item (con categoría), PunchItem o Rfi::Header. Las categorías salen de los field sets sincronizados.",
+      example: "Observations::Item | quality",
+      hint: "Observations::Item | <categoría> (quality, safety, commissioning, warranty, work_to_complete), PunchItem o Rfi::Header.",
       input: "select",
       optionsKey: "fieldSetTemplates",
     },
@@ -104,11 +140,8 @@ export const fieldSetsSpec: ObjectSpec = {
     else if (!allowed) errors.push(`Clase “${className}” no válida. Permitidas: ${FIELD_SET_CLASSES.map((c) => `${c.value} (${c.label})`).join(", ")}.`);
     else if (allowed.requiresScope && !scope) {
       errors.push(`Para ${allowed.label} hay que indicar la categoría: “${className} | <categoría>” (elígela en el desplegable).`);
-    } else {
-      const opts = ctx.options?.fieldSetTemplates;
-      if (opts?.length && !opts.some((o) => o.value.toLowerCase() === templateCell(className, scope).toLowerCase())) {
-        warnings.push(`“${templateCell(className, scope)}” no coincide con ningún field set sincronizado; el dry-run comprobará si existe una plantilla en cada instancia.`);
-      }
+    } else if (className === "Observations::Item" && scope && !OBSERVATION_CATEGORIES.some((c) => c.value === scope)) {
+      errors.push(`Categoría de observación “${scope}” no válida. Permitidas: ${OBSERVATION_CATEGORIES.map((c) => `${c.value} (${c.label})`).join(", ")}.`);
     }
     let ids = parseIdList(cells.custom_fields);
     const { sections, errors: secErrors } = parseSections(cells.sections, ids);
