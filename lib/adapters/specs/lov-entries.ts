@@ -9,8 +9,8 @@ export const lovEntriesSpec: ObjectSpec = {
   writable: true,
   dependsOn: ["custom_fields"],
   columns: [
-    { id: "parent", label: "[ID] del custom field padre", required: true, example: "[CF-010]", input: "select", optionsKey: "lovCustomFields" },
-    { id: "name", label: "Opción con [ID]", required: true, example: "[OPT-01] Conforme" },
+    { id: "parent", label: "[ID] del custom field padre", required: true, example: "[QE-CF-010]", input: "select", optionsKey: "lovCustomFields" },
+    { id: "name", label: "Opción con [ID]", required: true, example: "Conforme [OPT-01]" },
   ],
   compareAttrs: ["active"],
   attrLabels: { active: "Activa", parent: "Custom field padre", name: "Nombre" },
@@ -24,7 +24,8 @@ export const lovEntriesSpec: ObjectSpec = {
     else if (!isValidIdFormat(parentId)) errors.push(`ID padre “${parentId}” con formato inválido.`);
     const parsed = parseName(cells.name);
     if (!cells.name?.trim()) errors.push("Falta la opción.");
-    else if (!parsed.id) errors.push("La opción no incluye un [ID] entre corchetes al inicio.");
+    else if (!parsed.id) errors.push("La opción no incluye un [ID] entre corchetes al final, p. ej. “Conforme [OPT-01]”.");
+    else if (parsed.position === "start") errors.push(`El [ID] debe ir al final: “${parsed.text || "Opción"} [${parsed.id}]”.`);
     else if (!isValidIdFormat(parsed.id)) errors.push(`ID “${parsed.id}” con formato inválido.`);
     const knownCf = ctx.known?.custom_fields;
     if (parentId && knownCf && !knownCf.includes(parentId)) {

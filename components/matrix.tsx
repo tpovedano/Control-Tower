@@ -9,6 +9,8 @@ import type { MatrixRow, MatrixStats } from "@/lib/diff/matrix";
 import type { ObjectSpec } from "@/lib/adapters/spec-types";
 import { formatAttr } from "@/lib/adapters/spec-types";
 import { cn } from "@/lib/utils";
+import { parseName } from "@/lib/ids";
+import { disciplineOf } from "@/lib/naming";
 
 export type StatusFilter = "all" | "aligned" | "missing" | "differs" | "conflict" | "orphan" | "not_aligned";
 
@@ -16,6 +18,7 @@ export interface MatrixFilters {
   text: string;
   status: StatusFilter;
   instanceId: string; // "" = todas
+  discipline?: string; // "" = todas; "none" = sin disciplina
 }
 
 const ROW_HEIGHT = 40;
@@ -23,6 +26,10 @@ const COL_WIDTH = 150;
 
 const matrixFilter: FilterFn<MatrixRow> = (row, _columnId, f: MatrixFilters) => {
   const r = row.original;
+  if (f.discipline) {
+    const d = disciplineOf(r.key?.split("/")[0]);
+    if (f.discipline === "none" ? d !== null : d !== f.discipline) return false;
+  }
   if (f.text) {
     const q = f.text.toLowerCase();
     const names = Object.values(r.cells).flatMap((c) => c?.names ?? []);
@@ -127,7 +134,7 @@ export function MatrixTable({
                         🔇
                       </span>
                     )}
-                    <span className="truncate text-muted-foreground">{r.key ? r.displayName.replace(/^\s*\[[^\]]+\]\s*/, "") : r.displayName}</span>
+                    <span className="truncate text-muted-foreground">{r.key ? parseName(r.displayName).text || r.displayName : r.displayName}</span>
                     {r.alerts.length > 0 && (
                       <span className="shrink-0 rounded bg-red-600 px-1 text-[10px] font-semibold text-white" title={r.alerts.join(" · ")}>
                         ⛔ conflicto

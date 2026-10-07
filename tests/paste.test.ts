@@ -35,33 +35,49 @@ describe("parseClipboard", () => {
 });
 
 describe("validateBatch", () => {
-  it("custom fields: válido, sin ID, tipo inválido, duplicados", () => {
+  it("custom fields: válido, sin ID, ID al principio, tipo inválido, duplicados", () => {
     const rows = [
-      ["[CF-001] Fecha", "date", "", "", "", "Sí"],
+      ["Fecha [QE-CF-001]", "date", "", "", "", "Sí"],
       ["Sin corchetes", "date"],
-      ["[CF-002] Otro", "foo"],
-      ["[CF-003] Uno", "Texto"],
-      ["[cf-003] Dos", "string"],
+      ["Otro [QE-CF-002]", "foo"],
+      ["Uno [QE-CF-003]", "Texto"],
+      ["Dos [qe-cf-003]", "string"],
+      ["[QE-CF-004] Antiguo", "string"],
     ];
     const r = validateBatch("custom_fields", rows, { dataTypes: [{ dataType: "datetime", variants: [] }, { dataType: "string", variants: [] }] });
     expect(r[0].status).toBe("valid");
-    expect(r[0].desired?.attrs).toEqual({ data_type: "datetime", variant: null, active: true });
+    expect(r[0].desired).toMatchObject({ key: "QE-CF-001", name: "Fecha [QE-CF-001]", attrs: { data_type: "datetime", variant: null, active: true } });
     expect(r[1].status).toBe("error");
     expect(r[1].messages[0]).toMatch(/\[ID\]/);
     expect(r[2].status).toBe("error");
     expect(r[3].status).toBe("error");
     expect(r[3].messages[0]).toMatch(/duplicado/);
     expect(r[4].status).toBe("error");
+    expect(r[5].messages[0]).toMatch(/debe ir al final/);
+  });
+  it("disciplina: columna al final, se antepone al ID y se valida", () => {
+    const r = validateBatch("custom_fields", [
+      ["Fecha [CF-010]", "datetime", "", "", "", "", "QE"],
+      ["Casco [CF-011]", "boolean", "", "", "", "", "Seguridad y Salud"],
+      ["Plano [DE-CF-012]", "string", "", "", "", "", ""],
+      ["Sin disciplina [CF-013]", "string"],
+      ["Contradicción [QE-CF-014]", "string", "", "", "", "", "HS"],
+    ]);
+    expect(r[0]).toMatchObject({ status: "warning", desired: { key: "QE-CF-010", name: "Fecha [QE-CF-010]" } });
+    expect(r[1].desired?.key).toBe("HS-CF-011");
+    expect(r[2]).toMatchObject({ status: "valid", desired: { key: "DE-CF-012" } });
+    expect(r[3].status).toBe("error");
+    expect(r[4].status).toBe("error");
   });
   it("alias de tipo de dato y lista oficial de respaldo sin metadatos", () => {
     const r = validateBatch("custom_fields", [
-      ["[CF-9] Lista", "Lista desplegable"],
-      ["[CF-8] Raro", "rarito"],
-      ["[CF-7] Grupo", "all"],
-      ["[CF-6] Fecha", "fecha"],
-      ["[CF-5] Notas", "texto largo"],
-      ["[CF-4] Importe", "número", "moneda"],
-      ["[CF-3] Mal", "decimal", "inventada"],
+      ["Lista [QE-CF-9]", "Lista desplegable"],
+      ["Raro [QE-CF-8]", "rarito"],
+      ["Grupo [QE-CF-7]", "all"],
+      ["Fecha [QE-CF-6]", "fecha"],
+      ["Notas [QE-CF-5]", "texto largo"],
+      ["Importe [QE-CF-4]", "número", "moneda"],
+      ["Mal [QE-CF-3]", "decimal", "inventada"],
     ]);
     expect(r[0].desired?.attrs.data_type).toBe("lov_entry");
     expect(r[1].status).toBe("error");
@@ -74,44 +90,51 @@ describe("validateBatch", () => {
   });
   it("variante específica del tipo según metadatos", () => {
     const ctx = { dataTypes: [{ dataType: "decimal", variants: ["currency"] }, { dataType: "string", variants: [] }] };
-    expect(validateBatch("custom_fields", [["[CF-1] A", "decimal", "currency"]], ctx)[0].status).toBe("valid");
-    expect(validateBatch("custom_fields", [["[CF-1] A", "decimal", "radio_button"]], ctx)[0].status).toBe("error");
-    expect(validateBatch("custom_fields", [["[CF-1] A", "string", "read_only"]], ctx)[0].status).toBe("valid");
+    expect(validateBatch("custom_fields", [["A [QE-CF-1]", "decimal", "currency"]], ctx)[0].status).toBe("valid");
+    expect(validateBatch("custom_fields", [["A [QE-CF-1]", "decimal", "radio_button"]], ctx)[0].status).toBe("error");
+    expect(validateBatch("custom_fields", [["A [QE-CF-1]", "string", "read_only"]], ctx)[0].status).toBe("valid");
   });
-  it("LOV: llave compuesta y dependencia desconocida como advertencia", () => {
-    const r = validateBatch("lov_entries", [["[CF-010]", "[OPT-01] Conforme"], ["CF-010", "[OPT-02] No conforme"]], { known: { custom_fields: ["CF-001"] } });
-    expect(r[0].desired?.key).toBe("CF-010/OPT-01");
-    expect(r[1].desired?.parentKey).toBe("CF-010");
+  it("LOV: ID al final, llave compuesta y dependencia desconocida como advertencia", () => {
+    const r = validateBatch("lov_entries", [["[QE-CF-010]", "Conforme [OPT-01]"], ["QE-CF-010", "No conforme [OPT-02]"], ["[QE-CF-010]", "[OPT-03] Antiguo"]], {
+      known: { custom_fields: ["QE-CF-001"] },
+    });
+    expect(r[0].desired).toMatchObject({ key: "QE-CF-010/OPT-01", name: "Conforme [OPT-01]" });
+    expect(r[1].desired?.parentKey).toBe("QE-CF-010");
     expect(r[0].status).toBe("warning");
+    expect(r[2].status).toBe("error");
   });
   it("LOV: mismo ID de opción en distintos padres no es duplicado", () => {
-    const r = validateBatch("lov_entries", [["[CF-1]", "[SI] Sí"], ["[CF-2]", "[SI] Sí"]]);
+    const r = validateBatch("lov_entries", [["[QE-CF-1]", "Sí [SI]"], ["[QE-CF-2]", "Sí [SI]"]]);
     expect(r.every((x) => x.status === "valid")).toBe(true);
   });
   it("field sets: lista de custom fields y secciones", () => {
-    const r = validateBatch("field_sets", [["[FS-1] Calidad", "Observation | Quality", "[CF-001];[CF-002]", "A: [CF-001] | B: [CF-002]"]]);
-    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "Quality", custom_fields: ["CF-001", "CF-002"] });
+    const r = validateBatch("field_sets", [["Calidad [QE-FS-1]", "Observation | Quality", "[QE-CF-001];[QE-CF-002]", "A: [QE-CF-001] | B: [QE-CF-002]"]]);
+    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "Quality", custom_fields: ["QE-CF-001", "QE-CF-002"] });
     expect(r[0].desired?.extra?.sections).toEqual([
-      { name: "A", ids: ["CF-001"] },
-      { name: "B", ids: ["CF-002"] },
+      { name: "A", ids: ["QE-CF-001"] },
+      { name: "B", ids: ["QE-CF-002"] },
     ]);
-    const bad = validateBatch("field_sets", [["[FS-2] X", "", ""]]);
+    const bad = validateBatch("field_sets", [["X [QE-FS-2]", "", ""]]);
     expect(bad[0].status).toBe("error");
     // Clases oficiales: Observations::Item (exige categoría), PunchItem, Rfi::Header
     const cls = validateBatch("field_sets", [
-      ["[FS-3] A", "Observations::Item", "[CF-1]"],
-      ["[FS-4] B", "PunchItem", "[CF-1]"],
-      ["[FS-5] C", "RFI", "[CF-1]"],
-      ["[FS-6] D", "Inspection", "[CF-1]"],
+      ["A [QE-FS-3]", "Observations::Item", "[QE-CF-1]"],
+      ["B [QE-FS-4]", "PunchItem", "[QE-CF-1]"],
+      ["C [DE-FS-5]", "RFI", "[QE-CF-1]"],
+      ["D [QE-FS-6]", "Inspection", "[QE-CF-1]"],
     ]);
     expect(cls[0].status).toBe("error");
-    expect(cls[0].messages[0]).toMatch(/categoría/);
+    expect(cls[0].messages.join()).toMatch(/categoría/);
     expect(cls[1].status).toBe("valid");
     expect(cls[2].desired?.attrs.class_name).toBe("Rfi::Header");
-    expect(cls[3].messages[0]).toMatch(/no válida/);
+    expect(cls[3].messages.join()).toMatch(/no válida/);
+  });
+  it("inspection types con disciplina en su columna", () => {
+    const r = validateBatch("inspection_types", [["Seguridad [IT-001]", "HSE", "HS"]]);
+    expect(r[0].desired).toMatchObject({ key: "HS-IT-001", name: "Seguridad [HS-IT-001]", attrs: { grouping: "HSE" } });
   });
   it("límite de filas", () => {
-    const rows = Array.from({ length: 3 }, (_, i) => [`[IT-${i}] X`]);
+    const rows = Array.from({ length: 3 }, (_, i) => [`X [HS-IT-${i}]`]);
     const r = validateBatch("inspection_types", rows, {}, 2);
     expect(r[2].status).toBe("error");
   });

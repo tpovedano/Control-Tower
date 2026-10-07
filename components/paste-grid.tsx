@@ -89,7 +89,7 @@ export function PasteGrid({
             <tr>
               <th className="w-10 px-2 py-2 text-right">#</th>
               {columns.map((c) => (
-                <th key={c.id} className={cn("px-2 py-2 font-medium", c.input === "select" ? "min-w-[260px]" : c.input === "multiselect" ? "min-w-[220px]" : "min-w-[140px]")} title={c.hint}>
+                <th key={c.id} className={cn("px-2 py-2 font-medium", c.input === "select" ? "min-w-[260px]" : c.input === "multiselect" ? "min-w-[220px]" : c.id === "name" ? "min-w-[300px]" : "min-w-[140px]")} title={c.hint}>
                   {c.label}
                   {c.required && <span className="text-red-600"> *</span>}
                 </th>

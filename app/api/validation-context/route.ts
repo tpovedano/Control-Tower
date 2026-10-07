@@ -24,7 +24,7 @@ export const GET = route(async (req) => {
   for (const s of snaps.filter((x) => x.objectType === "custom_fields")) {
     for (const i of s.items) {
       if (!i.key || cfs.has(i.key)) continue;
-      cfs.set(i.key, { label: `[${i.key}] ${i.text}`.trim(), lov: LOV_DATA_TYPES.includes(String(i.attrs.data_type)) });
+      cfs.set(i.key, { label: `${i.text} [${i.key}]`.trim(), lov: LOV_DATA_TYPES.includes(String(i.attrs.data_type)) });
     }
   }
   const byKey = (a: SelectOption, b: SelectOption) => a.value.localeCompare(b.value);

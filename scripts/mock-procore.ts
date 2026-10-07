@@ -2,7 +2,7 @@
  * Servidor Procore simulado para desarrollo local sin credenciales de sandbox.
  *   npm run mock:procore   (puerto 4010)
  * y en .env.local: PROCORE_BASE_URL=http://localhost:4010  PROCORE_LOGIN_URL=http://localhost:4010
- * Companies: 1001 (es) y 1002 (en) con datos de ejemplo. MOCK_429=1 inyecta 429 periódicos.
+ * Companies: 1001 (es, formato vigente "Nombre [ID]") y 1002 (en, formato antiguo "[ID] Nombre") con datos de ejemplo. MOCK_429=1 inyecta 429 periódicos.
  * Solo implementa los endpoints que usa la app; el estado vive en memoria.
  */
 import http from "node:http";
@@ -24,29 +24,29 @@ const companies: Record<string, Company> = {
   "1001": {
     name: "Demo Constructora (ES)",
     cfs: [
-      { id: 11, label: "[CF-001] Fecha de inspección", data_type: "datetime", active: true },
-      { id: 12, label: "[CF-002] Estado de calidad", data_type: "lov_entry", active: true },
+      { id: 11, label: "Fecha de inspección [QE-CF-001]", data_type: "datetime", active: true },
+      { id: 12, label: "Estado de calidad [QE-CF-002]", data_type: "lov_entry", active: true },
       { id: 13, label: "Campo antiguo sin ID", data_type: "string", active: true },
     ],
-    lovs: { 12: [{ id: 121, label: "[OK] Conforme", active: true, position: 2 }, { id: 122, label: "[NOK] No conforme", active: true, position: 1 }] },
+    lovs: { 12: [{ id: 121, label: "Conforme [OK]", active: true, position: 2 }, { id: 122, label: "No conforme [NOK]", active: true, position: 1 }] },
     fieldSets: [
       { id: 31, name: "Predeterminado Observaciones Seguridad", class_name: "Observations::Item", observations_category_id: 7, observations_category: { id: 7, name: "Safety" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
       { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observations::Item", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
-      { id: 32, name: "[FS-001] Calidad", class_name: "Observations::Item", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, fields: { title: { required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
+      { id: 32, name: "Calidad [QE-FS-001]", class_name: "Observations::Item", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, fields: { title: { required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
     ],
-    inspectionTypes: [{ id: 41, name: "[IT-001] Seguridad", grouping: "HSE" }],
-    observationTypes: [{ id: 51, name: "[OT-001] Seguridad", category: "safety", active: true }],
+    inspectionTypes: [{ id: 41, name: "Seguridad [HS-IT-001]", grouping: "HSE" }],
+    observationTypes: [{ id: 51, name: "Seguridad [HS-OT-001]", category: "safety", active: true }],
   },
   "1002": {
     name: "Demo Builders (EN)",
     cfs: [
-      { id: 21, label: "[CF-001] Inspection date", data_type: "datetime", active: true },
-      { id: 22, label: "[CF-002] Quality status", data_type: "lov_entry", active: false },
+      { id: 21, label: "[QE-CF-001] Inspection date", data_type: "datetime", active: true },
+      { id: 22, label: "[QE-CF-002] Quality status", data_type: "lov_entry", active: false },
     ],
     lovs: { 22: [{ id: 221, label: "[OK] Compliant", active: true, position: 1 }] },
     fieldSets: [{ id: 61, name: "Default Quality Observations", class_name: "Observations::Item", observations_category_id: 81, observations_category: { id: 81, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] }],
     inspectionTypes: [],
-    observationTypes: [{ id: 71, name: "[OT-001] Safety", category: "safety", active: true }],
+    observationTypes: [{ id: 71, name: "[HS-OT-001] Safety", category: "safety", active: true }],
   },
 };
 

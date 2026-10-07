@@ -17,6 +17,7 @@ import type { GovernanceResponse } from "@/lib/client/types";
 import type { MatrixRow } from "@/lib/diff/matrix";
 import type { ObjectType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { DISCIPLINES } from "@/lib/naming";
 
 const REF_LABEL = { catalog: "Catálogo maestro", golden: "Instancia de referencia (★)", consensus: "Consenso (valor más frecuente)" } as const;
 
@@ -25,7 +26,7 @@ export function GobiernoView() {
   const [data, setData] = useState<GovernanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<MatrixFilters>({ text: "", status: "all", instanceId: "" });
+  const [filters, setFilters] = useState<MatrixFilters>({ text: "", status: "all", instanceId: "", discipline: "" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<MatrixRow | null>(null);
   const [remediation, setRemediation] = useState<{ mode: "create_missing" | "align"; keys: string[] } | null>(null);
@@ -145,7 +146,7 @@ export function GobiernoView() {
               <Label htmlFor="q" className="text-xs">
                 Buscar por [ID] o nombre
               </Label>
-              <Input id="q" value={filters.text} onChange={(e) => setFilters({ ...filters, text: e.target.value })} placeholder="CF-001, fecha…" />
+              <Input id="q" value={filters.text} onChange={(e) => setFilters({ ...filters, text: e.target.value })} placeholder="QE-CF-001, fecha…" />
             </div>
             <div className="w-48">
               <Label htmlFor="st" className="text-xs">
@@ -159,6 +160,20 @@ export function GobiernoView() {
                     {CELL_META[k].icon} {CELL_META[k].label}
                   </option>
                 ))}
+              </Select>
+            </div>
+            <div className="w-56">
+              <Label htmlFor="disc" className="text-xs">
+                Disciplina
+              </Label>
+              <Select id="disc" value={filters.discipline ?? ""} onChange={(e) => setFilters({ ...filters, discipline: e.target.value })}>
+                <option value="">Todas</option>
+                {DISCIPLINES.map((d) => (
+                  <option key={d.code} value={d.code}>
+                    {d.code} — {d.label}
+                  </option>
+                ))}
+                <option value="none">Sin disciplina en el [ID]</option>
               </Select>
             </div>
             <div className="w-56">

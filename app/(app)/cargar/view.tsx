@@ -9,6 +9,7 @@ import { PasteGrid } from "@/components/paste-grid";
 import { RunFlow } from "@/components/run-flow";
 import { EXECUTION_ORDER, SPECS } from "@/lib/adapters/specs";
 import { KNOWN_DATA_TYPES, KNOWN_VARIANTS } from "@/lib/adapters/specs/custom-fields";
+import { DISCIPLINES, DISCIPLINE_OPTIONS } from "@/lib/naming";
 import type { DataTypeInfo, ValidationContext } from "@/lib/adapters/spec-types";
 import { validateBatch } from "@/lib/adapters/validate";
 import { api } from "@/lib/client/api";
@@ -58,7 +59,9 @@ export function CargarView({ maxRows }: { maxRows: number }) {
     };
   }, [type, metaInstance]);
 
-  const validation = useMemo(() => validateBatch(type, rows, ctx, maxRows), [type, rows, ctx, maxRows]);
+  // Las disciplinas son fijas (naming convention); el resto de opciones viene de lo sincronizado.
+  const fullCtx = useMemo<ValidationContext>(() => ({ ...ctx, options: { ...ctx.options, disciplines: DISCIPLINE_OPTIONS } }), [ctx]);
+  const validation = useMemo(() => validateBatch(type, rows, fullCtx, maxRows), [type, rows, fullCtx, maxRows]);
   const nonEmpty = rows.filter((r) => r.some((c) => c?.trim()));
   const counts = { valid: 0, warning: 0, error: 0 };
   validation.forEach((v, i) => rows[i]?.some((c) => c?.trim()) && counts[v.status]++);
@@ -117,7 +120,7 @@ export function CargarView({ maxRows }: { maxRows: number }) {
               className={cn("rounded-md border p-3 text-left text-sm transition-colors", type === tp ? "border-primary bg-primary/10 ring-1 ring-primary" : "hover:bg-accent")}
             >
               <span className="font-medium">{SPECS[tp].label}</span>
-              <span className="mt-0.5 block font-mono text-xs text-muted-foreground">[{SPECS[tp].idPrefixExample}] …</span>
+              <span className="mt-0.5 block font-mono text-xs text-muted-foreground">Nombre [{SPECS[tp].idPrefixExample}]</span>
               {!SPECS[tp].writable && <Badge className="mt-1">Solo lectura</Badge>}
             </button>
           ))}
@@ -125,6 +128,20 @@ export function CargarView({ maxRows }: { maxRows: number }) {
         <p className="text-xs text-muted-foreground">Orden recomendado por dependencias: Custom Fields → LOV Entries → Field Sets. Inspection y Observation Types son independientes.</p>
         {!spec.writable && <Alert variant="warning">{spec.readOnlyReason}</Alert>}
       </section>
+
+      <Alert>
+        <p className="font-medium">Regla de nombres</p>
+        <p className="mt-1 text-xs">
+          El [ID] va <strong>al final</strong> del nombre y empieza por el código de la disciplina:{" "}
+          {DISCIPLINES.map((d, i) => (
+            <span key={d.code}>
+              {i > 0 && " · "}
+              <strong>{d.code}</strong> {d.label}
+            </span>
+          ))}
+          . Ejemplo: <code>Fecha de inspección [QE-CF-001]</code>. Si eliges la disciplina en su columna y el [ID] no la lleva, se añade sola.
+        </p>
+      </Alert>
 
       {/* 2. Pegar */}
       <section className="space-y-2">
@@ -147,7 +164,7 @@ export function CargarView({ maxRows }: { maxRows: number }) {
             }}
           />
         )}
-        <PasteGrid columns={spec.columns} rows={rows} onChange={setRows} validation={validation} suggestions={suggestions} options={ctx.options} />
+        <PasteGrid columns={spec.columns} rows={rows} onChange={setRows} validation={validation} suggestions={suggestions} options={fullCtx.options} />
         {spec.columns.some((c) => c.optionsKey) && (
           <p className="text-xs text-muted-foreground">
             Los desplegables se rellenan con lo sincronizado en Gobierno. Si falta algo, pulsa “Sincronizar / Leer instancias” allí.

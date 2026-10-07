@@ -10,7 +10,17 @@ Torre de control para **estandarizar y gobernar la configuración de múltiples 
 | Inspection Types (company) | ✅ | ✅ |
 | Company Observation Types | ✅ | ❌ solo lectura (ver limitaciones) |
 
-La llave de correspondencia entre instancias es el **ID estándar entre corchetes** al inicio del nombre: `[CF-001] Fecha de inspección` ≡ `[CF-001] Inspection date`. Se compara **siempre por `[ID]`**, nunca por el texto ni el idioma.
+La llave de correspondencia entre instancias es el **ID estándar entre corchetes al final del nombre**: `Fecha de inspección [QE-CF-001]` ≡ `Inspection date [QE-CF-001]`. Se compara **siempre por `[ID]`**, nunca por el texto ni el idioma.
+
+**Naming convention.** El `[ID]` empieza por el código de la disciplina:
+
+| Código | Disciplina |
+|---|---|
+| `QE` | Calidad y Medioambiente |
+| `HS` | Seguridad y Salud |
+| `DE` | Oficina Técnica |
+
+En **Cargar** cada tipo tiene una columna *Disciplina* (desplegable, última columna): si el `[ID]` no lleva el código, se antepone automáticamente (`Fecha [CF-001]` + `QE` → `Fecha [QE-CF-001]`); si lleva otro distinto, la fila da error. Las opciones de LOV no llevan disciplina (la lleva su custom field padre). Los elementos que ya existen en Procore con el formato antiguo (`[CF-001] Nombre`) se siguen reconociendo por su `[ID]`; para migrarlos al formato nuevo, carga el lote de cada instancia (con el texto en su idioma) activando *Sobrescribir también textos*. Las disciplinas se configuran en `lib/naming.ts`.
 
 Stack: Next.js 15 (App Router) + TypeScript · Tailwind (componentes estilo shadcn/ui) · Drizzle ORM sobre Vercel Postgres (Neon) · Zod · TanStack Table + Virtual · Vitest.
 
@@ -111,17 +121,17 @@ Haz clic en una fila para ver la comparación lado a lado.
 **Paso 2 — Cargar.** Elige **Custom Fields** y pega desde Excel (con o sin cabecera) estas 10 filas:
 
 ```
-Nombre con [ID]	Tipo de dato	Variante	Descripción	Valor por defecto	Activo
-[CF-001] Fecha de inspección	datetime				Sí
-[CF-002] Estado de calidad	lov_entry				Sí
-[CF-003] Responsable	usuario				Sí
-[CF-004] Importe estimado	decimal	currency	Importe en moneda local		Sí
-[CF-005] Requiere reinspección	boolean				Sí
-[CF-006] Observaciones	texto largo				Sí
-[CF-007] Zona	string		Zona de obra		Sí
-[CF-008] Disciplinas	selección múltiple				Sí
-[CF-009] Fecha de cierre	datetime				Sí
-[CF-010] Campo obsoleto	string				No
+Nombre con [ID]	Tipo de dato	Variante	Descripción	Valor por defecto	Activo	Disciplina
+Fecha de inspección [QE-CF-001]	datetime				Sí	QE
+Estado de calidad [QE-CF-002]	lov_entry				Sí	QE
+Responsable [QE-CF-003]	usuario				Sí	QE
+Importe estimado [DE-CF-004]	decimal	currency	Importe en moneda local		Sí	DE
+Requiere reinspección [QE-CF-005]	boolean				Sí	QE
+Observaciones [QE-CF-006]	texto largo				Sí	QE
+Zona [HS-CF-007]	string		Zona de obra		Sí	HS
+Disciplinas [DE-CF-008]	selección múltiple				Sí	DE
+Fecha de cierre [QE-CF-009]	datetime				Sí	QE
+Campo obsoleto [CF-010]	string				No	DE
 ```
 
 (Tipos de dato válidos según Procore: `string`, `decimal`, `boolean`, `lov_entry`, `lov_entries`, `datetime`, `rich_text`, `login_information`, `login_informations`, `vendor`, `location`, `prostore_files`; variantes: `currency`, `project_directory`, `radio_button`, `read_only` (dependen del tipo). Se aceptan alias en español: *texto, texto largo, número, fecha, lista desplegable, selección múltiple, usuario, empresa, archivos…*; y para la variante *moneda, solo lectura…*. La validación es fila a fila (✅/⚠️/❌): `[ID]` presente y válido, duplicados del lote, obligatorios, tipo de dato/variante contra los metadatos reales de Procore y dependencias.)
@@ -130,15 +140,15 @@ Elige las instancias destino → **Revisar (dry-run)**: por instancia y fila ver
 
 Después, opciones de la lista (**LOV Entries**):
 ```
-[CF-002]	[OK] Conforme
-[CF-002]	[NOK] No conforme
-[CF-002]	[NA] No aplica
+[QE-CF-002]	Conforme [OK]
+[QE-CF-002]	No conforme [NOK]
+[QE-CF-002]	No aplica [NA]
 ```
 y un **Field Set**:
 ```
-[FS-001] Inspección de calidad	Observations::Item | Quality	[CF-001];[CF-002];[CF-007]	General
+Inspección de calidad [QE-FS-001]	Observations::Item | Quality	[QE-CF-001];[QE-CF-002];[HS-CF-007]	General	QE
 ```
-(*Clase/Herramienta* es un desplegable con los `class_name` que admite Procore — `Observations::Item` (Observaciones, exige categoría), `PunchItem` (Punch List) y `Rfi::Header` (RFI) — combinados con las categorías de los field sets sincronizados, con formato `class_name | categoría`; también se puede pegar así desde Excel y se aceptan alias como *Observaciones*, *Punch* o *RFI*; *Custom fields incluidos* es una selección múltiple de los custom fields sincronizados. *Secciones*: vacío = “General”; `Sección A: [CF-001] | Sección B: [CF-002]` para varias.)
+(*Clase/Herramienta* es un desplegable con los `class_name` que admite Procore — `Observations::Item` (Observaciones, exige categoría), `PunchItem` (Punch List) y `Rfi::Header` (RFI) — combinados con las categorías de los field sets sincronizados, con formato `class_name | categoría`; también se puede pegar así desde Excel y se aceptan alias como *Observaciones*, *Punch* o *RFI*; *Custom fields incluidos* es una selección múltiple de los custom fields sincronizados. *Secciones*: vacío = “General”; `Sección A: [QE-CF-001] | Sección B: [QE-CF-002]` para varias.)
 
 **Paso 3 — Remediar.** En Gobierno, selecciona filas (o abre una) y usa **Crear donde falta** o **Alinear atributos**: abre el mismo dry-run + confirmación con la definición de referencia (catálogo maestro → instancia ★ → consenso).
 
@@ -178,7 +188,9 @@ lib/
              endpoints.ts (TODOS los paths y versiones), oauth.ts, errors.ts (401/403/404/422/429/5xx legibles)
   adapters/  specs/*      → parte "client-safe": columnas, parseo y validación de filas por tipo
              server/*     → list / normalize / plan / apply por tipo (misma interfaz ServerAdapter)
-  ids/       parseo y normalización de [ID]  (regex ^\s*\[([^\]]+)\]\s*(.*)$, trim + mayúsculas)
+  ids/       parseo y normalización de [ID] al final del nombre (regex ^(.*?)\s*\[([^\]]+)\]\s*$, trim + mayúsculas;
+             reconoce también el formato antiguo "[ID] Nombre")
+  naming.ts  naming convention: disciplinas QE / HS / DE
   diff/      plan.ts (CREAR/ACTUALIZAR/SIN CAMBIOS/OMITIR) y matrix.ts (matriz de alineación)
   db/        schema Drizzle + migraciones
   crypto/    AES-256-GCM

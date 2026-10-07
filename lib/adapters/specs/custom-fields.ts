@@ -1,4 +1,4 @@
-import { formatName, isValidIdFormat, parseName } from "@/lib/ids";
+import { parseGovernedName } from "@/lib/naming";
 import { parseBoolean } from "@/lib/paste/parse";
 import type { ObjectSpec, ValidationContext } from "../spec-types";
 
@@ -111,16 +111,17 @@ export const customFieldsSpec: ObjectSpec = {
   type: "custom_fields",
   label: "Custom Fields",
   singular: "Custom Field",
-  idPrefixExample: "CF-001",
+  idPrefixExample: "QE-CF-001",
   writable: true,
   dependsOn: [],
   columns: [
-    { id: "name", label: "Nombre con [ID]", required: true, example: "[CF-001] Fecha de inspección" },
+    { id: "name", label: "Nombre con [ID]", required: true, example: "Fecha de inspección [QE-CF-001]" },
     { id: "data_type", label: "Tipo de dato", required: true, example: "datetime", hint: "string, decimal, boolean, datetime, rich_text, lov_entry, lov_entries, login_information, vendor, location…" },
     { id: "variant", label: "Variante", example: "", hint: "Opcional: currency, project_directory, radio_button, read_only" },
     { id: "description", label: "Descripción", example: "Fecha en que se realizó la inspección" },
     { id: "default_value", label: "Valor por defecto", example: "" },
     { id: "active", label: "Activo", example: "Sí", hint: "Sí/No (vacío = Sí)" },
+    { id: "discipline", label: "Disciplina", example: "QE", hint: "QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica. Opcional si el [ID] ya empieza por el código.", input: "select", optionsKey: "disciplines" },
   ],
   compareAttrs: ["data_type", "variant", "active"],
   natureAttr: "data_type",
@@ -128,11 +129,9 @@ export const customFieldsSpec: ObjectSpec = {
   parseRow(cells, ctx) {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const parsed = parseName(cells.name);
-    if (!cells.name?.trim()) errors.push("Falta el nombre.");
-    else if (!parsed.id) errors.push("El nombre no incluye un [ID] entre corchetes al inicio.");
-    else if (!isValidIdFormat(parsed.id)) errors.push(`ID “${parsed.id}” con formato inválido (use letras, números, “-”, “_” o “.”).`);
-    if (parsed.id && !parsed.text) warnings.push("El nombre solo contiene el [ID], sin texto descriptivo.");
+    const parsed = parseGovernedName(cells.name, cells.discipline);
+    errors.push(...parsed.errors);
+    warnings.push(...parsed.warnings);
     const rawType = cells.data_type?.trim() ?? "";
     const dataType = rawType ? normalizeDataType(rawType) : "";
     const variant = cells.variant?.trim() ? normalizeVariant(cells.variant) : null;
@@ -140,14 +139,14 @@ export const customFieldsSpec: ObjectSpec = {
     else validateDataType(dataType, variant, ctx, errors, warnings);
     const active = parseBoolean(cells.active, true);
     if (active === null) errors.push(`Valor de “Activo” no reconocido: “${cells.active}” (use Sí/No).`);
-    if (errors.length || !parsed.id) return { errors, warnings };
+    if (errors.length || !parsed.id || !parsed.name) return { errors, warnings };
     return {
       errors,
       warnings,
       desired: {
         key: parsed.id,
         stdId: parsed.id,
-        name: formatName(parsed.id, parsed.text),
+        name: parsed.name,
         attrs: { data_type: dataType, variant, active: active ?? true },
         extra: { description: cells.description?.trim() || null, default_value: cells.default_value?.trim() || null },
       },

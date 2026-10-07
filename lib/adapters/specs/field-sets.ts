@@ -1,4 +1,5 @@
-import { formatName, isValidIdFormat, parseIdList, parseName } from "@/lib/ids";
+import { isValidIdFormat, parseIdList } from "@/lib/ids";
+import { parseGovernedName } from "@/lib/naming";
 import type { ObjectSpec } from "../spec-types";
 
 export interface SectionSpec {
@@ -70,11 +71,11 @@ export const fieldSetsSpec: ObjectSpec = {
   type: "field_sets",
   label: "Field Sets",
   singular: "Field Set",
-  idPrefixExample: "FS-001",
+  idPrefixExample: "QE-FS-001",
   writable: true,
   dependsOn: ["custom_fields"],
   columns: [
-    { id: "name", label: "Nombre con [ID]", required: true, example: "[FS-001] Inspección de calidad" },
+    { id: "name", label: "Nombre con [ID]", required: true, example: "Inspección de calidad [QE-FS-001]" },
     {
       id: "class_name",
       label: "Clase/Herramienta",
@@ -84,8 +85,9 @@ export const fieldSetsSpec: ObjectSpec = {
       input: "select",
       optionsKey: "fieldSetTemplates",
     },
-    { id: "custom_fields", label: "Custom fields incluidos", required: true, example: "[CF-001];[CF-002]", input: "multiselect", optionsKey: "customFields" },
-    { id: "sections", label: "Secciones", example: "General", hint: "Opcional. “Nombre” o “Sección A: [CF-001] | Sección B: [CF-002]”" },
+    { id: "custom_fields", label: "Custom fields incluidos", required: true, example: "[QE-CF-001];[QE-CF-002]", input: "multiselect", optionsKey: "customFields" },
+    { id: "sections", label: "Secciones", example: "General", hint: "Opcional. “Nombre” o “Sección A: [QE-CF-001] | Sección B: [QE-CF-002]”" },
+    { id: "discipline", label: "Disciplina", example: "QE", hint: "QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica. Opcional si el [ID] ya empieza por el código.", input: "select", optionsKey: "disciplines" },
   ],
   compareAttrs: ["class_name", "scope", "custom_fields"],
   natureAttr: "class_name",
@@ -93,10 +95,9 @@ export const fieldSetsSpec: ObjectSpec = {
   parseRow(cells, ctx) {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const parsed = parseName(cells.name);
-    if (!cells.name?.trim()) errors.push("Falta el nombre.");
-    else if (!parsed.id) errors.push("El nombre no incluye un [ID] entre corchetes al inicio.");
-    else if (!isValidIdFormat(parsed.id)) errors.push(`ID “${parsed.id}” con formato inválido.`);
+    const parsed = parseGovernedName(cells.name, cells.discipline);
+    errors.push(...parsed.errors);
+    warnings.push(...parsed.warnings);
     const { className, scope } = parseClassCell(cells.class_name);
     const allowed = FIELD_SET_CLASSES.find((c) => c.value === className);
     if (!className) errors.push("Falta la clase/herramienta.");
@@ -128,7 +129,7 @@ export const fieldSetsSpec: ObjectSpec = {
       const missing = ids.filter((id) => !known.includes(id));
       if (missing.length) warnings.push(`Custom fields no encontrados en las instancias sincronizadas: ${missing.join(", ")}. Se comprobará por instancia.`);
     }
-    if (errors.length || !parsed.id) return { errors, warnings };
+    if (errors.length || !parsed.id || !parsed.name) return { errors, warnings };
     const uniq = Array.from(new Set(ids));
     return {
       errors,
@@ -136,7 +137,7 @@ export const fieldSetsSpec: ObjectSpec = {
       desired: {
         key: parsed.id,
         stdId: parsed.id,
-        name: formatName(parsed.id, parsed.text),
+        name: parsed.name,
         attrs: { class_name: className, scope, custom_fields: uniq },
         extra: { sections, sectionsExplicit: !!cells.sections?.trim() },
       },
