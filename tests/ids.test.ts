@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatName, isValidIdFormat, lovKey, parseIdList, parseName } from "@/lib/ids";
-import { disciplineOf, parseDiscipline, parseGovernedName } from "@/lib/naming";
+import { disciplineOf, disciplinesIn, parseGovernedName } from "@/lib/naming";
 
 describe("parseName (ID al final)", () => {
   it("extrae y normaliza el ID del final", () => {
@@ -40,29 +40,24 @@ describe("helpers", () => {
 });
 
 describe("naming convention (disciplinas)", () => {
-  it("disciplina del ID y alias", () => {
+  it("la disciplina se deduce del código que lleva el [ID], esté donde esté", () => {
     expect(disciplineOf("QE-CF-001")).toBe("QE");
-    expect(disciplineOf("HS.IT.1")).toBe("HS");
+    expect(disciplineOf("CF-HS-001")).toBe("HS");
+    expect(disciplineOf("it.de.7")).toBe("DE");
     expect(disciplineOf("CF-001")).toBeNull();
-    expect(parseDiscipline("Calidad y Medioambiente")).toBe("QE");
-    expect(parseDiscipline("seguridad")).toBe("HS");
-    expect(parseDiscipline("DE — Oficina Técnica")).toBe("DE");
-    expect(parseDiscipline("xx")).toBe("invalid");
-    expect(parseDiscipline("")).toBeNull();
+    expect(disciplineOf("QEX-001")).toBeNull(); // solo códigos completos, no fragmentos
+    expect(disciplinesIn("QE-HS-001")).toEqual(["QE", "HS"]);
+    expect(disciplineOf("QE-HS-001")).toBeNull();
   });
-  it("válido si el ID ya lleva la disciplina", () => {
-    expect(parseGovernedName("Fecha [QE-CF-001]", "")).toMatchObject({ id: "QE-CF-001", name: "Fecha [QE-CF-001]", discipline: "QE", errors: [] });
+  it("válido si el ID incluye una disciplina; no se añade ni cambia nada", () => {
+    expect(parseGovernedName("Fecha [QE-CF-001]")).toMatchObject({ id: "QE-CF-001", name: "Fecha [QE-CF-001]", discipline: "QE", errors: [], warnings: [] });
+    expect(parseGovernedName("Casco [CF-HS-002]")).toMatchObject({ id: "CF-HS-002", name: "Casco [CF-HS-002]", discipline: "HS" });
   });
-  it("antepone la disciplina elegida si el ID no la lleva (con aviso)", () => {
-    const r = parseGovernedName("Fecha [CF-001]", "HS");
-    expect(r).toMatchObject({ id: "HS-CF-001", name: "Fecha [HS-CF-001]", discipline: "HS", errors: [] });
-    expect(r.warnings[0]).toMatch(/Se añadirá la disciplina/);
-  });
-  it("errores: sin disciplina, disciplina contradictoria, ID al principio, sin ID", () => {
-    expect(parseGovernedName("Fecha [CF-001]", "").errors[0]).toMatch(/Falta la disciplina/);
-    expect(parseGovernedName("Fecha [QE-CF-001]", "DE").errors[0]).toMatch(/es de QE/);
-    expect(parseGovernedName("[QE-CF-001] Fecha", "").errors[0]).toMatch(/debe ir al final/);
-    expect(parseGovernedName("Fecha", "QE").errors[0]).toMatch(/al final/);
-    expect(parseGovernedName("Fecha [QE-CF-001]", "Marketing").errors[0]).toMatch(/no válida/);
+  it("errores: sin código de disciplina, varias disciplinas, ID al principio, sin ID", () => {
+    expect(parseGovernedName("Fecha [CF-001]").errors[0]).toMatch(/no cumple la naming convention/);
+    expect(parseGovernedName("Fecha [CF-001]").id).toBeNull();
+    expect(parseGovernedName("Fecha [QE-HS-001]").errors[0]).toMatch(/varias disciplinas/);
+    expect(parseGovernedName("[QE-CF-001] Fecha").errors[0]).toMatch(/debe ir al final/);
+    expect(parseGovernedName("Fecha").errors[0]).toMatch(/al final/);
   });
 });

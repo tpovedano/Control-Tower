@@ -121,7 +121,7 @@ export const customFieldsSpec: ObjectSpec = {
     { id: "description", label: "Descripción", example: "Fecha en que se realizó la inspección" },
     { id: "default_value", label: "Valor por defecto", example: "" },
     { id: "active", label: "Activo", example: "Sí", hint: "Sí/No (vacío = Sí)" },
-    { id: "discipline", label: "Disciplina", example: "QE", hint: "QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica. Opcional si el [ID] ya empieza por el código.", input: "select", optionsKey: "disciplines" },
+    { id: "discipline", label: "Disciplina", example: "", hint: "Se rellena sola a partir del código del [ID]: QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica.", input: "auto" },
   ],
   compareAttrs: ["data_type", "variant", "active"],
   natureAttr: "data_type",
@@ -129,7 +129,7 @@ export const customFieldsSpec: ObjectSpec = {
   parseRow(cells, ctx) {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const parsed = parseGovernedName(cells.name, cells.discipline);
+    const parsed = parseGovernedName(cells.name);
     errors.push(...parsed.errors);
     warnings.push(...parsed.warnings);
     const rawType = cells.data_type?.trim() ?? "";

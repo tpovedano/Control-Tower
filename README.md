@@ -20,7 +20,7 @@ La llave de correspondencia entre instancias es el **ID estándar entre corchete
 | `HS` | Seguridad y Salud |
 | `DE` | Oficina Técnica |
 
-En **Cargar** cada tipo tiene una columna *Disciplina* (desplegable, última columna): si el `[ID]` no lleva el código, se antepone automáticamente (`Fecha [CF-001]` + `QE` → `Fecha [QE-CF-001]`); si lleva otro distinto, la fila da error. Las opciones de LOV no llevan disciplina (la lleva su custom field padre). Los elementos que ya existen en Procore con el formato antiguo (`[CF-001] Nombre`) se siguen reconociendo por su `[ID]`; para migrarlos al formato nuevo, carga el lote de cada instancia (con el texto en su idioma) activando *Sobrescribir también textos*. Las disciplinas se configuran en `lib/naming.ts`.
+El `[ID]` de cada elemento debe **incluir el código de una disciplina** (en cualquier posición dentro de los corchetes: `[QE-CF-001]`, `[CF-QE-001]`…); la app **no añade ni cambia nada** en el nombre. En **Cargar**, la columna *Disciplina* (última) es **automática**: se rellena sola a partir de ese código y no se edita (si se pega algo en ella se ignora). Si el `[ID]` no lleva código de disciplina, o lleva más de uno, la fila da error. Las opciones de LOV no llevan disciplina (la lleva su custom field padre). Los elementos que ya existen en Procore con el formato antiguo (`[CF-001] Nombre`) se siguen reconociendo por su `[ID]`; para migrarlos al formato nuevo, carga el lote de cada instancia (con el texto en su idioma) activando *Sobrescribir también textos*. Las disciplinas se configuran en `lib/naming.ts`.
 
 Stack: Next.js 15 (App Router) + TypeScript · Tailwind (componentes estilo shadcn/ui) · Drizzle ORM sobre Vercel Postgres (Neon) · Zod · TanStack Table + Virtual · Vitest.
 
@@ -121,17 +121,17 @@ Haz clic en una fila para ver la comparación lado a lado.
 **Paso 2 — Cargar.** Elige **Custom Fields** y pega desde Excel (con o sin cabecera) estas 10 filas:
 
 ```
-Nombre con [ID]	Tipo de dato	Variante	Descripción	Valor por defecto	Activo	Disciplina
-Fecha de inspección [QE-CF-001]	datetime				Sí	QE
-Estado de calidad [QE-CF-002]	lov_entry				Sí	QE
-Responsable [QE-CF-003]	usuario				Sí	QE
-Importe estimado [DE-CF-004]	decimal	currency	Importe en moneda local		Sí	DE
-Requiere reinspección [QE-CF-005]	boolean				Sí	QE
-Observaciones [QE-CF-006]	texto largo				Sí	QE
-Zona [HS-CF-007]	string		Zona de obra		Sí	HS
-Disciplinas [DE-CF-008]	selección múltiple				Sí	DE
-Fecha de cierre [QE-CF-009]	datetime				Sí	QE
-Campo obsoleto [CF-010]	string				No	DE
+Nombre con [ID]	Tipo de dato	Variante	Descripción	Valor por defecto	Activo
+Fecha de inspección [QE-CF-001]	datetime				Sí
+Estado de calidad [QE-CF-002]	lov_entry				Sí
+Responsable [QE-CF-003]	usuario				Sí
+Importe estimado [DE-CF-004]	decimal	currency	Importe en moneda local		Sí
+Requiere reinspección [QE-CF-005]	boolean				Sí
+Observaciones [QE-CF-006]	texto largo				Sí
+Zona [HS-CF-007]	string		Zona de obra		Sí
+Disciplinas [DE-CF-008]	selección múltiple				Sí
+Fecha de cierre [QE-CF-009]	datetime				Sí
+Campo obsoleto [DE-CF-010]	string				No
 ```
 
 (Tipos de dato válidos según Procore: `string`, `decimal`, `boolean`, `lov_entry`, `lov_entries`, `datetime`, `rich_text`, `login_information`, `login_informations`, `vendor`, `location`, `prostore_files`; variantes: `currency`, `project_directory`, `radio_button`, `read_only` (dependen del tipo). Se aceptan alias en español: *texto, texto largo, número, fecha, lista desplegable, selección múltiple, usuario, empresa, archivos…*; y para la variante *moneda, solo lectura…*. La validación es fila a fila (✅/⚠️/❌): `[ID]` presente y válido, duplicados del lote, obligatorios, tipo de dato/variante contra los metadatos reales de Procore y dependencias.)
@@ -146,7 +146,7 @@ Después, opciones de la lista (**LOV Entries**):
 ```
 y un **Field Set**:
 ```
-Inspección de calidad [QE-FS-001]	Observations::Item | quality	[QE-CF-001];[QE-CF-002];[HS-CF-007]	General	QE
+Inspección de calidad [QE-FS-001]	Observations::Item | quality	[QE-CF-001];[QE-CF-002];[HS-CF-007]	General
 ```
 (*Clase/Herramienta* es un desplegable con los `class_name` que admite Procore — `Observations::Item` con su categoría (Calidad `quality`, Seguridad `safety`, Puesta en marcha `commissioning`, Garantía `warranty`, Trabajo pendiente `work_to_complete`), `PunchItem` (Punch List) y `Rfi::Header` (RFI) —, con formato `class_name | categoría` e indicando en cuántas instancias hay plantilla; también se puede pegar así desde Excel y se aceptan alias como *Observaciones*, *Punch* o *RFI*; *Custom fields incluidos* es una selección múltiple de los custom fields sincronizados. *Secciones*: vacío = “General”; `Sección A: [QE-CF-001] | Sección B: [QE-CF-002]` para varias.)
 

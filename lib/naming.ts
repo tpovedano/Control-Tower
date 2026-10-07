@@ -16,29 +16,21 @@ export type DisciplineCode = (typeof DISCIPLINES)[number]["code"];
 
 export const DISCIPLINE_OPTIONS: SelectOption[] = DISCIPLINES.map((d) => ({ value: d.code, label: `${d.code} — ${d.label}` }));
 
-/** Disciplina de un ID por su prefijo ("QE-CF-001" → "QE"), o null. */
+/** Códigos de disciplina que aparecen en un ID ("QE-CF-001", "CF-QE-001" o "QE.001" → ["QE"]). */
+export function disciplinesIn(id: string | null | undefined): DisciplineCode[] {
+  if (!id) return [];
+  const tokens = normalizeId(id).split(/[-_.]/);
+  return DISCIPLINES.filter((d) => tokens.includes(d.code)).map((d) => d.code);
+}
+
+/** Disciplina de un ID según el código que lleva dentro de los corchetes (null si no lleva ninguno o lleva varios). */
 export function disciplineOf(id: string | null | undefined): DisciplineCode | null {
-  if (!id) return null;
-  const head = normalizeId(id).split(/[-_.]/)[0];
-  return (DISCIPLINES.find((d) => d.code === head)?.code as DisciplineCode) ?? null;
+  const found = disciplinesIn(id);
+  return found.length === 1 ? found[0] : null;
 }
 
 export function disciplineLabel(code: string | null | undefined): string {
   return DISCIPLINES.find((d) => d.code === code)?.label ?? "";
-}
-
-/** Acepta el código ("QE") o el nombre ("Calidad y Medioambiente", "seguridad"…). */
-export function parseDiscipline(raw: string | null | undefined): DisciplineCode | null | "invalid" {
-  const v = (raw ?? "").trim();
-  if (!v) return null;
-  const up = v.toUpperCase();
-  const byCode = DISCIPLINES.find((d) => up === d.code || up.startsWith(`${d.code} `) || up.startsWith(`${d.code}—`) || up.startsWith(`${d.code} —`));
-  if (byCode) return byCode.code;
-  const low = v.toLowerCase();
-  if (low.startsWith("calidad") || low.includes("medioambiente") || low.includes("medio ambiente")) return "QE";
-  if (low.startsWith("seguridad") || low.includes("salud")) return "HS";
-  if (low.startsWith("oficina")) return "DE";
-  return "invalid";
 }
 
 export interface GovernedName {
@@ -52,14 +44,15 @@ export interface GovernedName {
 }
 
 /**
- * Valida el nombre de una fila nueva según las reglas: [ID] al final y con el código de disciplina.
- * Si se elige la disciplina y el ID no la lleva, se antepone automáticamente (aviso).
+ * Valida el nombre de una fila nueva según la naming convention: [ID] al final y con el código de UNA disciplina
+ * dentro de los corchetes. La app no añade ni cambia nada: la disciplina se deduce del propio [ID].
  */
-export function parseGovernedName(rawName: string | undefined, rawDiscipline: string | undefined): GovernedName {
+export function parseGovernedName(rawName: string | undefined): GovernedName {
   const errors: string[] = [];
   const warnings: string[] = [];
   const p = parseName(rawName);
   const out: GovernedName = { id: null, text: p.text, name: null, discipline: null, errors, warnings };
+  const codes = DISCIPLINES.map((d) => `${d.code} (${d.label})`).join(", ");
 
   if (!rawName?.trim()) {
     errors.push("Falta el nombre.");
@@ -73,31 +66,19 @@ export function parseGovernedName(rawName: string | undefined, rawDiscipline: st
     errors.push(`El [ID] debe ir al final del nombre: “${p.text || "Nombre"} [${p.id}]”.`);
     return out;
   }
+  if (!isValidIdFormat(p.id)) {
+    errors.push(`ID “${p.id}” con formato inválido (use letras, números, “-”, “_” o “.”).`);
+    return out;
+  }
+  const found = disciplinesIn(p.id);
+  if (found.length === 0) {
+    errors.push(`El [ID] “${p.id}” no cumple la naming convention: debe incluir el código de la disciplina: ${codes}.`);
+    return out;
+  }
+  if (found.length > 1) {
+    errors.push(`El [ID] “${p.id}” incluye varias disciplinas (${found.join(", ")}); debe llevar solo una.`);
+    return out;
+  }
   if (!p.text) warnings.push("El nombre solo contiene el [ID], sin texto descriptivo.");
-
-  const chosen = parseDiscipline(rawDiscipline);
-  if (chosen === "invalid") {
-    errors.push(`Disciplina “${rawDiscipline}” no válida. Usa: ${DISCIPLINES.map((d) => `${d.code} (${d.label})`).join(", ")}.`);
-    return out;
-  }
-  const inId = disciplineOf(p.id);
-  let id = p.id;
-  if (chosen && inId && chosen !== inId) {
-    errors.push(`El [ID] ${p.id} es de ${inId} (${disciplineLabel(inId)}) pero la disciplina elegida es ${chosen} (${disciplineLabel(chosen)}).`);
-    return out;
-  }
-  if (chosen && !inId) {
-    id = `${chosen}-${p.id}`;
-    warnings.push(`Se añadirá la disciplina al [ID]: se creará como “${formatName(id, p.text)}”.`);
-  }
-  const discipline = chosen || inId;
-  if (!discipline) {
-    errors.push(`Falta la disciplina: elígela en la columna “Disciplina” o empieza el [ID] por ${DISCIPLINES.map((d) => d.code).join(", ")} (p. ej. [QE-${p.id}]).`);
-    return out;
-  }
-  if (!isValidIdFormat(id)) {
-    errors.push(`ID “${id}” con formato inválido (use letras, números, “-”, “_” o “.”).`);
-    return out;
-  }
-  return { id, text: p.text, name: formatName(id, p.text), discipline, errors, warnings };
+  return { id: p.id, text: p.text, name: formatName(p.id, p.text), discipline: found[0], errors, warnings };
 }

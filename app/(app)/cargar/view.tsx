@@ -9,7 +9,7 @@ import { PasteGrid } from "@/components/paste-grid";
 import { RunFlow } from "@/components/run-flow";
 import { EXECUTION_ORDER, SPECS } from "@/lib/adapters/specs";
 import { KNOWN_DATA_TYPES, KNOWN_VARIANTS } from "@/lib/adapters/specs/custom-fields";
-import { DISCIPLINES, DISCIPLINE_OPTIONS } from "@/lib/naming";
+import { DISCIPLINES } from "@/lib/naming";
 import type { DataTypeInfo, ValidationContext } from "@/lib/adapters/spec-types";
 import { validateBatch } from "@/lib/adapters/validate";
 import { api } from "@/lib/client/api";
@@ -59,9 +59,7 @@ export function CargarView({ maxRows }: { maxRows: number }) {
     };
   }, [type, metaInstance]);
 
-  // Las disciplinas son fijas (naming convention); el resto de opciones viene de lo sincronizado.
-  const fullCtx = useMemo<ValidationContext>(() => ({ ...ctx, options: { ...ctx.options, disciplines: DISCIPLINE_OPTIONS } }), [ctx]);
-  const validation = useMemo(() => validateBatch(type, rows, fullCtx, maxRows), [type, rows, fullCtx, maxRows]);
+  const validation = useMemo(() => validateBatch(type, rows, ctx, maxRows), [type, rows, ctx, maxRows]);
   const nonEmpty = rows.filter((r) => r.some((c) => c?.trim()));
   const counts = { valid: 0, warning: 0, error: 0 };
   validation.forEach((v, i) => rows[i]?.some((c) => c?.trim()) && counts[v.status]++);
@@ -132,14 +130,14 @@ export function CargarView({ maxRows }: { maxRows: number }) {
       <Alert>
         <p className="font-medium">Regla de nombres</p>
         <p className="mt-1 text-xs">
-          El [ID] va <strong>al final</strong> del nombre y empieza por el código de la disciplina:{" "}
+          El [ID] va <strong>al final</strong> del nombre e <strong>incluye el código de su disciplina</strong>:{" "}
           {DISCIPLINES.map((d, i) => (
             <span key={d.code}>
               {i > 0 && " · "}
               <strong>{d.code}</strong> {d.label}
             </span>
           ))}
-          . Ejemplo: <code>Fecha de inspección [QE-CF-001]</code>. Si eliges la disciplina en su columna y el [ID] no la lleva, se añade sola.
+          . Ejemplo: <code>Fecha de inspección [QE-CF-001]</code>. La columna “Disciplina” se rellena sola a partir de ese código; si el [ID] no lo lleva, la fila da error.
         </p>
       </Alert>
 
@@ -164,7 +162,7 @@ export function CargarView({ maxRows }: { maxRows: number }) {
             }}
           />
         )}
-        <PasteGrid columns={spec.columns} rows={rows} onChange={setRows} validation={validation} suggestions={suggestions} options={fullCtx.options} />
+        <PasteGrid columns={spec.columns} rows={rows} onChange={setRows} validation={validation} suggestions={suggestions} options={ctx.options} />
         {spec.columns.some((c) => c.optionsKey) && (
           <p className="text-xs text-muted-foreground">
             Los desplegables se rellenan con lo sincronizado en Gobierno. Si falta algo, pulsa “Sincronizar / Leer instancias” allí.

@@ -70,6 +70,8 @@ export interface ParsedRow {
   status: RowStatus;
   messages: string[];
   desired?: DesiredItem;
+  /** Valores calculados para las columnas "auto" (p. ej. la disciplina deducida del [ID]). */
+  derived?: Record<string, string>;
 }
 
 export interface ColumnSpec {
@@ -78,8 +80,8 @@ export interface ColumnSpec {
   required?: boolean;
   hint?: string;
   example: string;
-  /** Editor de la celda: texto libre (por defecto), desplegable o selección múltiple. */
-  input?: "text" | "select" | "multiselect";
+  /** Editor de la celda: texto libre (por defecto), desplegable, selección múltiple o "auto" (calculada, no editable). */
+  input?: "text" | "select" | "multiselect" | "auto";
   /** Clave de las opciones en ValidationContext.options. */
   optionsKey?: string;
 }

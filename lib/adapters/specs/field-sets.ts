@@ -123,7 +123,7 @@ export const fieldSetsSpec: ObjectSpec = {
     },
     { id: "custom_fields", label: "Custom fields incluidos", required: true, example: "[QE-CF-001];[QE-CF-002]", input: "multiselect", optionsKey: "customFields" },
     { id: "sections", label: "Secciones", example: "General", hint: "Opcional. “Nombre” o “Sección A: [QE-CF-001] | Sección B: [QE-CF-002]”" },
-    { id: "discipline", label: "Disciplina", example: "QE", hint: "QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica. Opcional si el [ID] ya empieza por el código.", input: "select", optionsKey: "disciplines" },
+    { id: "discipline", label: "Disciplina", example: "", hint: "Se rellena sola a partir del código del [ID]: QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica.", input: "auto" },
   ],
   compareAttrs: ["class_name", "scope", "custom_fields"],
   natureAttr: "class_name",
@@ -131,7 +131,7 @@ export const fieldSetsSpec: ObjectSpec = {
   parseRow(cells, ctx) {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const parsed = parseGovernedName(cells.name, cells.discipline);
+    const parsed = parseGovernedName(cells.name);
     errors.push(...parsed.errors);
     warnings.push(...parsed.warnings);
     const { className, scope } = parseClassCell(cells.class_name);

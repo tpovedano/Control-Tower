@@ -89,9 +89,10 @@ export function PasteGrid({
             <tr>
               <th className="w-10 px-2 py-2 text-right">#</th>
               {columns.map((c) => (
-                <th key={c.id} className={cn("px-2 py-2 font-medium", c.input === "select" ? "min-w-[260px]" : c.input === "multiselect" ? "min-w-[220px]" : c.id === "name" ? "min-w-[300px]" : "min-w-[140px]")} title={c.hint}>
+                <th key={c.id} className={cn("px-2 py-2 font-medium", c.input === "select" ? "min-w-[260px]" : c.input === "multiselect" ? "min-w-[220px]" : c.input === "auto" ? "min-w-[240px]" : c.id === "name" ? "min-w-[300px]" : "min-w-[140px]")} title={c.hint}>
                   {c.label}
                   {c.required && <span className="text-red-600"> *</span>}
+                  {c.input === "auto" && <span className="ml-1 font-normal text-muted-foreground">(automática)</span>}
                 </th>
               ))}
               <th className="min-w-[220px] px-2 py-2">Validación</th>
@@ -110,7 +111,17 @@ export function PasteGrid({
                     const label = `Fila ${r + 1}, ${col.label}`;
                     return (
                       <td key={col.id} className="p-0">
-                        {col.input === "select" && opts ? (
+                        {col.input === "auto" ? (
+                          <div
+                            data-r={r}
+                            data-c={c}
+                            aria-label={label}
+                            title="Se rellena sola a partir del código del [ID]"
+                            className={cn("flex h-8 items-center whitespace-nowrap px-2 text-sm", v?.derived?.[col.id] ? "text-foreground" : "text-muted-foreground")}
+                          >
+                            {v?.derived?.[col.id] || (empty ? "" : "—")}
+                          </div>
+                        ) : col.input === "select" && opts ? (
                           <SelectCell value={row[c] ?? ""} options={opts} onChange={(v) => setCell(r, c, v)} ariaLabel={label} dataR={r} dataC={c} onKeyDown={(e) => handleKey(e, r, c)} />
                         ) : col.input === "multiselect" && opts ? (
                           <MultiSelectCell

@@ -13,14 +13,14 @@ export const observationTypesSpec: ObjectSpec = {
   columns: [
     { id: "name", label: "Nombre con [ID]", required: true, example: "Seguridad [HS-OT-001]" },
     { id: "category", label: "Categoría", example: "safety" },
-    { id: "discipline", label: "Disciplina", example: "QE", hint: "QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica. Opcional si el [ID] ya empieza por el código.", input: "select", optionsKey: "disciplines" },
+    { id: "discipline", label: "Disciplina", example: "", hint: "Se rellena sola a partir del código del [ID]: QE Calidad y Medioambiente · HS Seguridad y Salud · DE Oficina Técnica.", input: "auto" },
   ],
   compareAttrs: ["category", "active"],
   attrLabels: { category: "Categoría", active: "Activo", name: "Nombre" },
   parseRow(cells) {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const parsed = parseGovernedName(cells.name, cells.discipline);
+    const parsed = parseGovernedName(cells.name);
     errors.push(...parsed.errors);
     warnings.push(...parsed.warnings);
     warnings.push("Observation Types es solo lectura en v1: el dry-run mostrará qué falta pero no se escribirá nada.");

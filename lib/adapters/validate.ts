@@ -1,4 +1,6 @@
 import type { ObjectType, ParsedRow } from "@/lib/types";
+import { parseName } from "@/lib/ids";
+import { disciplineLabel, disciplinesIn } from "@/lib/naming";
 import { getSpec } from "./specs";
 import type { ValidationContext } from "./spec-types";
 
@@ -10,7 +12,14 @@ export function validateBatch(type: ObjectType, rows: string[][], ctx: Validatio
     spec.columns.forEach((c, i) => (record[c.id] = cells[i] ?? ""));
     const r = spec.parseRow(record, ctx);
     const messages = [...r.errors, ...r.warnings];
+    // Columna "Disciplina": se deduce del código que lleva el [ID] (no se escribe a mano).
+    const derived: Record<string, string> = {};
+    if (spec.columns.some((c) => c.id === "discipline")) {
+      const found = disciplinesIn(parseName(record.name).id);
+      derived.discipline = found.length === 1 ? `${found[0]} — ${disciplineLabel(found[0])}` : found.length > 1 ? `¿${found.join("/")}?` : "";
+    }
     return {
+      derived,
       index,
       status: r.errors.length ? "error" : r.warnings.length ? "warning" : "valid",
       messages,

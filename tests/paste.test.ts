@@ -55,19 +55,19 @@ describe("validateBatch", () => {
     expect(r[4].status).toBe("error");
     expect(r[5].messages[0]).toMatch(/debe ir al final/);
   });
-  it("disciplina: columna al final, se antepone al ID y se valida", () => {
+  it("disciplina: se deduce del [ID] (columna automática), nunca se añade al ID", () => {
     const r = validateBatch("custom_fields", [
-      ["Fecha [CF-010]", "datetime", "", "", "", "", "QE"],
-      ["Casco [CF-011]", "boolean", "", "", "", "", "Seguridad y Salud"],
-      ["Plano [DE-CF-012]", "string", "", "", "", "", ""],
-      ["Sin disciplina [CF-013]", "string"],
-      ["Contradicción [QE-CF-014]", "string", "", "", "", "", "HS"],
+      ["Fecha [QE-CF-010]", "datetime", "", "", "", "", "HS"], // lo pegado en Disciplina se ignora
+      ["Casco [CF-HS-011]", "boolean"],
+      ["Sin disciplina [CF-013]", "string", "", "", "", "", "QE"],
+      ["Dos disciplinas [QE-DE-014]", "string"],
     ]);
-    expect(r[0]).toMatchObject({ status: "warning", desired: { key: "QE-CF-010", name: "Fecha [QE-CF-010]" } });
-    expect(r[1].desired?.key).toBe("HS-CF-011");
-    expect(r[2]).toMatchObject({ status: "valid", desired: { key: "DE-CF-012" } });
+    expect(r[0]).toMatchObject({ status: "valid", desired: { key: "QE-CF-010", name: "Fecha [QE-CF-010]" }, derived: { discipline: "QE — Calidad y Medioambiente" } });
+    expect(r[1]).toMatchObject({ status: "valid", desired: { key: "CF-HS-011" }, derived: { discipline: "HS — Seguridad y Salud" } });
+    expect(r[2].status).toBe("error");
+    expect(r[2].messages[0]).toMatch(/naming convention/);
+    expect(r[2].derived?.discipline).toBe("");
     expect(r[3].status).toBe("error");
-    expect(r[4].status).toBe("error");
   });
   it("alias de tipo de dato y lista oficial de respaldo sin metadatos", () => {
     const r = validateBatch("custom_fields", [
@@ -132,9 +132,10 @@ describe("validateBatch", () => {
     expect(cat[0].messages.join()).toMatch(/Categoría de observación/);
     expect(cat[1].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "quality" });
   });
-  it("inspection types con disciplina en su columna", () => {
-    const r = validateBatch("inspection_types", [["Seguridad [IT-001]", "HSE", "HS"]]);
+  it("inspection types: el ID se respeta tal cual", () => {
+    const r = validateBatch("inspection_types", [["Seguridad [HS-IT-001]", "HSE"]]);
     expect(r[0].desired).toMatchObject({ key: "HS-IT-001", name: "Seguridad [HS-IT-001]", attrs: { grouping: "HSE" } });
+    expect(r[0].derived?.discipline).toMatch(/^HS/);
   });
   it("límite de filas", () => {
     const rows = Array.from({ length: 3 }, (_, i) => [`X [HS-IT-${i}]`]);
