@@ -112,19 +112,19 @@ Haz clic en una fila para ver la comparación lado a lado.
 
 ```
 Nombre con [ID]	Tipo de dato	Variante	Descripción	Valor por defecto	Activo
-[CF-001] Fecha de inspección	date				Sí
+[CF-001] Fecha de inspección	datetime				Sí
 [CF-002] Estado de calidad	lov_entry				Sí
 [CF-003] Responsable	usuario				Sí
-[CF-004] Importe estimado	decimal		Importe en moneda local		Sí
+[CF-004] Importe estimado	decimal	currency	Importe en moneda local		Sí
 [CF-005] Requiere reinspección	boolean				Sí
 [CF-006] Observaciones	texto largo				Sí
 [CF-007] Zona	string		Zona de obra		Sí
 [CF-008] Disciplinas	selección múltiple				Sí
-[CF-009] Fecha de cierre	date				Sí
+[CF-009] Fecha de cierre	datetime				Sí
 [CF-010] Campo obsoleto	string				No
 ```
 
-(Se aceptan alias en español: *texto, texto largo, número, fecha, lista desplegable, selección múltiple, usuario…*). La validación es fila a fila (✅/⚠️/❌): `[ID]` presente y válido, duplicados del lote, obligatorios, tipo de dato/variante contra los metadatos reales de Procore y dependencias.
+(Tipos de dato válidos según Procore: `string`, `decimal`, `boolean`, `lov_entry`, `lov_entries`, `datetime`, `rich_text`, `login_information`, `login_informations`, `vendor`, `location`, `prostore_files`; variantes: `currency`, `project_directory`, `radio_button`, `read_only` (dependen del tipo). Se aceptan alias en español: *texto, texto largo, número, fecha, lista desplegable, selección múltiple, usuario, empresa, archivos…*; y para la variante *moneda, solo lectura…*. La validación es fila a fila (✅/⚠️/❌): `[ID]` presente y válido, duplicados del lote, obligatorios, tipo de dato/variante contra los metadatos reales de Procore y dependencias.)
 
 Elige las instancias destino → **Revisar (dry-run)**: por instancia y fila verás `CREAR`, `ACTUALIZAR`, `SIN CAMBIOS` u `OMITIR`, con totales. **Ejecutar** pide confirmación explícita (“Se crearán N… en M instancias”). Al terminar: resultado por fila e instancia, **Reintentar solo los fallidos** y **Descargar reporte CSV**. Vuelve a lanzar el mismo lote: todo saldrá `SIN CAMBIOS` (idempotente).
 

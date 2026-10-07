@@ -24,7 +24,7 @@ const companies: Record<string, Company> = {
   "1001": {
     name: "Demo Constructora (ES)",
     cfs: [
-      { id: 11, label: "[CF-001] Fecha de inspección", data_type: "date", active: true },
+      { id: 11, label: "[CF-001] Fecha de inspección", data_type: "datetime", active: true },
       { id: 12, label: "[CF-002] Estado de calidad", data_type: "lov_entry", active: true },
       { id: 13, label: "Campo antiguo sin ID", data_type: "string", active: true },
     ],
@@ -39,7 +39,7 @@ const companies: Record<string, Company> = {
   "1002": {
     name: "Demo Builders (EN)",
     cfs: [
-      { id: 21, label: "[CF-001] Inspection date", data_type: "date", active: true },
+      { id: 21, label: "[CF-001] Inspection date", data_type: "datetime", active: true },
       { id: 22, label: "[CF-002] Quality status", data_type: "lov_entry", active: false },
     ],
     lovs: { 22: [{ id: 221, label: "[OK] Compliant", active: true, position: 1 }] },
@@ -49,16 +49,22 @@ const companies: Record<string, Company> = {
   },
 };
 
-const DATA_TYPES = [
-  { data_type: "string", variants: [] },
-  { data_type: "text", variants: [] },
-  { data_type: "decimal", variants: ["number", "currency", "percentage"] },
-  { data_type: "boolean", variants: [] },
-  { data_type: "date", variants: [] },
-  { data_type: "lov_entry", variants: [] },
-  { data_type: "lov_entries", variants: [] },
-  { data_type: "login_information", variants: [] },
-];
+// Forma agrupada (como puede devolverla Procore): el nombre del grupo no es un tipo de dato.
+const DATA_TYPES = {
+  all: [
+    { data_type: "string", variants: ["read_only"] },
+    { data_type: "decimal", variants: ["currency", "read_only"] },
+    { data_type: "boolean", variants: [] },
+    { data_type: "datetime", variants: [] },
+    { data_type: "rich_text", variants: [] },
+    { data_type: "lov_entry", variants: ["radio_button"] },
+    { data_type: "lov_entries", variants: [] },
+    { data_type: "login_information", variants: ["project_directory"] },
+    { data_type: "login_informations", variants: ["project_directory"] },
+    { data_type: "vendor", variants: [] },
+    { data_type: "location", variants: [] },
+  ],
+};
 
 let counter = 0;
 

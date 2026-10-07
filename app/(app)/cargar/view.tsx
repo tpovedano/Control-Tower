@@ -8,7 +8,7 @@ import { Badge } from "@/components/status-badge";
 import { PasteGrid } from "@/components/paste-grid";
 import { RunFlow } from "@/components/run-flow";
 import { EXECUTION_ORDER, SPECS } from "@/lib/adapters/specs";
-import { KNOWN_DATA_TYPES } from "@/lib/adapters/specs/custom-fields";
+import { KNOWN_DATA_TYPES, KNOWN_VARIANTS } from "@/lib/adapters/specs/custom-fields";
 import type { DataTypeInfo, ValidationContext } from "@/lib/adapters/spec-types";
 import { validateBatch } from "@/lib/adapters/validate";
 import { api } from "@/lib/client/api";
@@ -84,7 +84,10 @@ export function CargarView({ maxRows }: { maxRows: number }) {
 
   const suggestions: Record<string, string[]> = {};
   if (type === "custom_fields") suggestions.data_type = ctx.dataTypes?.length ? ctx.dataTypes.map((d) => d.dataType) : KNOWN_DATA_TYPES;
-  if (type === "custom_fields" && ctx.dataTypes?.length) suggestions.variant = Array.from(new Set(ctx.dataTypes.flatMap((d) => d.variants)));
+  if (type === "custom_fields") {
+    const fromMeta = Array.from(new Set((ctx.dataTypes ?? []).flatMap((d) => d.variants)));
+    suggestions.variant = fromMeta.length ? fromMeta : KNOWN_VARIANTS;
+  }
   if (type === "field_sets" && ctx.fieldSetClasses?.length) suggestions.class_name = ctx.fieldSetClasses;
   if (type === "lov_entries" && ctx.known?.custom_fields) suggestions.parent = ctx.known.custom_fields.map((k) => `[${k}]`);
 
@@ -161,7 +164,7 @@ export function CargarView({ maxRows }: { maxRows: number }) {
           {type === "custom_fields" && (
             <span className="text-xs text-muted-foreground">
               {dataTypesInfo.error
-                ? `No se pudieron leer los tipos de dato de Procore (${dataTypesInfo.error}); se valida contra la lista conocida.`
+                ? `No se pudieron leer los tipos de dato de Procore (${dataTypesInfo.error}); se valida contra la lista oficial de tipos de Procore.`
                 : dataTypesInfo.from
                   ? `Tipos de dato validados contra “${dataTypesInfo.from}”.`
                   : ""}

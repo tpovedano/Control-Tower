@@ -67,7 +67,12 @@ describe("custom fields adapter", () => {
 
   it("parseDataTypes acepta varias formas", () => {
     expect(parseDataTypes({ data: [{ data_type: "decimal", variants: ["currency", "percent"] }] })).toEqual([{ dataType: "decimal", label: undefined, variants: ["currency", "percent"] }]);
-    expect(parseDataTypes(["string", "date"]).map((d) => d.dataType)).toEqual(["string", "date"]);
+    expect(parseDataTypes(["string", "datetime"]).map((d) => d.dataType)).toEqual(["string", "datetime"]);
+    // Agrupación por nombre: "all" nunca se toma como tipo de dato
+    expect(parseDataTypes({ all: ["string", "decimal"], enabled: ["string"] }).map((d) => d.dataType)).toEqual(["string", "decimal"]);
+    expect(parseDataTypes({ data: { all: [{ data_type: "lov_entry", variants: [{ variant: "radio_button" }] }] } })).toEqual([{ dataType: "lov_entry", label: undefined, variants: ["radio_button"] }]);
+    // Respuesta irreconocible → [] (se usa la lista oficial)
+    expect(parseDataTypes({ all: { foo: 1 } })).toEqual([]);
     expect(parseDataTypes({ boolean: { variants: [] }, lov_entry: ["dropdown"] })).toEqual([
       { dataType: "boolean", variants: [] },
       { dataType: "lov_entry", variants: ["dropdown"] },

@@ -43,9 +43,9 @@ describe("validateBatch", () => {
       ["[CF-003] Uno", "Texto"],
       ["[cf-003] Dos", "string"],
     ];
-    const r = validateBatch("custom_fields", rows, { dataTypes: [{ dataType: "date", variants: [] }, { dataType: "string", variants: [] }] });
+    const r = validateBatch("custom_fields", rows, { dataTypes: [{ dataType: "datetime", variants: [] }, { dataType: "string", variants: [] }] });
     expect(r[0].status).toBe("valid");
-    expect(r[0].desired?.attrs).toEqual({ data_type: "date", variant: null, active: true });
+    expect(r[0].desired?.attrs).toEqual({ data_type: "datetime", variant: null, active: true });
     expect(r[1].status).toBe("error");
     expect(r[1].messages[0]).toMatch(/\[ID\]/);
     expect(r[2].status).toBe("error");
@@ -53,10 +53,30 @@ describe("validateBatch", () => {
     expect(r[3].messages[0]).toMatch(/duplicado/);
     expect(r[4].status).toBe("error");
   });
-  it("alias de tipo de dato y advertencia sin metadatos", () => {
-    const r = validateBatch("custom_fields", [["[CF-9] Lista", "Lista desplegable"], ["[CF-8] Raro", "rarito"]]);
+  it("alias de tipo de dato y lista oficial de respaldo sin metadatos", () => {
+    const r = validateBatch("custom_fields", [
+      ["[CF-9] Lista", "Lista desplegable"],
+      ["[CF-8] Raro", "rarito"],
+      ["[CF-7] Grupo", "all"],
+      ["[CF-6] Fecha", "fecha"],
+      ["[CF-5] Notas", "texto largo"],
+      ["[CF-4] Importe", "número", "moneda"],
+      ["[CF-3] Mal", "decimal", "inventada"],
+    ]);
     expect(r[0].desired?.attrs.data_type).toBe("lov_entry");
-    expect(r[1].status).toBe("warning");
+    expect(r[1].status).toBe("error");
+    expect(r[2].status).toBe("error");
+    expect(r[2].messages[0]).toMatch(/Permitidos: string, decimal/);
+    expect(r[3].desired?.attrs.data_type).toBe("datetime");
+    expect(r[4].desired?.attrs.data_type).toBe("rich_text");
+    expect(r[5].desired?.attrs).toMatchObject({ data_type: "decimal", variant: "currency" });
+    expect(r[6].status).toBe("error");
+  });
+  it("variante específica del tipo según metadatos", () => {
+    const ctx = { dataTypes: [{ dataType: "decimal", variants: ["currency"] }, { dataType: "string", variants: [] }] };
+    expect(validateBatch("custom_fields", [["[CF-1] A", "decimal", "currency"]], ctx)[0].status).toBe("valid");
+    expect(validateBatch("custom_fields", [["[CF-1] A", "decimal", "radio_button"]], ctx)[0].status).toBe("error");
+    expect(validateBatch("custom_fields", [["[CF-1] A", "string", "read_only"]], ctx)[0].status).toBe("valid");
   });
   it("LOV: llave compuesta y dependencia desconocida como advertencia", () => {
     const r = validateBatch("lov_entries", [["[CF-010]", "[OPT-01] Conforme"], ["CF-010", "[OPT-02] No conforme"]], { known: { custom_fields: ["CF-001"] } });

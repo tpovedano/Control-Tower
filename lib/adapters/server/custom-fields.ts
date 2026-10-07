@@ -2,7 +2,7 @@ import { parseName } from "@/lib/ids";
 import { PROCORE_ENDPOINTS as E } from "@/lib/procore/endpoints";
 import { planItem } from "@/lib/diff/plan";
 import type { NormalizedItem } from "@/lib/types";
-import { customFieldsSpec } from "../specs/custom-fields";
+import { KNOWN_DATA_TYPES, customFieldsSpec } from "../specs/custom-fields";
 import type { DataTypeInfo } from "../spec-types";
 import { idOf, runWrite } from "./run-apply";
 import { memo, pickAttrs, str, type AdapterContext, type ServerAdapter } from "./types";
@@ -38,27 +38,52 @@ export async function listDataTypes(ctx: AdapterContext): Promise<DataTypeInfo[]
   return parseDataTypes(res.data);
 }
 
+/**
+ * Interpreta la respuesta de /custom_field/data_types sin depender de su forma exacta.
+ * Solo se aceptan como tipos los valores reconocibles (campo data_type, cadenas sueltas o claves que sean
+ * un tipo conocido); los nombres de agrupación ("all", "enabled"…) nunca se toman como tipos.
+ * Si no se reconoce ningún tipo conocido, devuelve [] y la validación usa la lista oficial de respaldo.
+ */
 export function parseDataTypes(body: unknown): DataTypeInfo[] {
-  const root = body && typeof body === "object" && !Array.isArray(body) && "data" in body ? (body as { data: unknown }).data : body;
-  const out: DataTypeInfo[] = [];
-  const pushVariants = (v: unknown): string[] =>
-    Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : String((x as Record<string, unknown>)?.variant ?? (x as Record<string, unknown>)?.name ?? (x as Record<string, unknown>)?.key ?? ""))).filter(Boolean) : [];
-  if (Array.isArray(root)) {
-    for (const d of root) {
-      if (typeof d === "string") out.push({ dataType: d, variants: [] });
-      else if (d && typeof d === "object") {
-        const o = d as Record<string, unknown>;
-        const dt = String(o.data_type ?? o.key ?? o.name ?? o.id ?? "");
-        if (dt) out.push({ dataType: dt, label: typeof o.label === "string" ? o.label : undefined, variants: pushVariants(o.variants) });
+  const found = new Map<string, DataTypeInfo>();
+  const variantsOf = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? v
+          .map((x) => (typeof x === "string" ? x : String((x as Record<string, unknown>)?.variant ?? (x as Record<string, unknown>)?.name ?? (x as Record<string, unknown>)?.key ?? "")))
+          .filter(Boolean)
+      : [];
+  const add = (dataType: string, variants: string[] = [], label?: string) => {
+    if (!/^[a-z][a-z0-9_]*$/.test(dataType)) return;
+    const prev = found.get(dataType);
+    found.set(dataType, { dataType, label: label ?? prev?.label, variants: Array.from(new Set([...(prev?.variants ?? []), ...variants])) });
+  };
+  const walk = (node: unknown, depth: number) => {
+    if (depth > 6 || node === null || node === undefined) return;
+    if (Array.isArray(node)) {
+      for (const x of node) {
+        if (typeof x === "string") add(x);
+        else walk(x, depth + 1);
+      }
+      return;
+    }
+    if (typeof node !== "object") return;
+    const o = node as Record<string, unknown>;
+    if (typeof o.data_type === "string") {
+      add(o.data_type, variantsOf(o.variants), typeof o.label === "string" ? o.label : undefined);
+      return;
+    }
+    for (const [k, v] of Object.entries(o)) {
+      if (KNOWN_DATA_TYPES.includes(k)) {
+        add(k, Array.isArray(v) ? variantsOf(v) : variantsOf((v as Record<string, unknown>)?.variants));
+      } else {
+        walk(v, depth + 1); // clave contenedora ("data", "all"…): se explora su contenido
       }
     }
-  } else if (root && typeof root === "object") {
-    for (const [k, v] of Object.entries(root as Record<string, unknown>)) {
-      if (v && typeof v === "object" && !Array.isArray(v)) out.push({ dataType: k, variants: pushVariants((v as Record<string, unknown>).variants) });
-      else out.push({ dataType: k, variants: pushVariants(v) });
-    }
-  }
-  return out;
+  };
+  walk(body, 0);
+  const list = [...found.values()];
+  // Respuesta irreconocible (ningún tipo conocido): mejor usar la lista oficial que validar contra basura.
+  return list.some((d) => KNOWN_DATA_TYPES.includes(d.dataType)) ? list : [];
 }
 
 export const customFieldsAdapter: ServerAdapter = {
