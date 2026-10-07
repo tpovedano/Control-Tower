@@ -190,7 +190,8 @@ describe("field sets adapter", () => {
       configurable_field_set: {
         name: "Nuevo [QE-FS-2]",
         class_name: "Observations::Item",
-        fields: { name: { name: "name", visible: true, required: true } },
+        // campos de la plantilla + los custom fields elegidos dentro de "fields"
+        fields: { name: { name: "name", visible: true, required: true }, custom_field_501: { name: "custom_field_501", custom_field_definition_id: 501, visible: true, required: false, position: 1 }, custom_field_502: { name: "custom_field_502", custom_field_definition_id: 502, visible: true, required: false, position: 2 } },
         category: "warranty",
         schema_id: "s-1",
       },
@@ -225,7 +226,7 @@ describe("field sets adapter", () => {
     expect((calls.find((c) => c.method === "POST")!.body as { configurable_field_set: Record<string, unknown> }).configurable_field_set).toEqual({
       name: "X [QE-FS-9]",
       class_name: "Observations::Item",
-      fields: { name: { name: "name", visible: true, required: true } },
+      fields: { name: { name: "name", visible: true, required: true }, custom_field_501: { name: "custom_field_501", custom_field_definition_id: 501, visible: true, required: false, position: 1 } },
       category: "quality",
     });
   });
@@ -261,6 +262,8 @@ describe("field sets adapter", () => {
     expect((post.body as { configurable_field_set: { fields: unknown } }).configurable_field_set.fields).toEqual({
       name: { name: "name", visible: true, required: true },
       description: { name: "description", visible: true, required: false },
+      custom_field_501: { name: "custom_field_501", custom_field_definition_id: 501, visible: true, required: false, position: 1 },
+      custom_field_502: { name: "custom_field_502", custom_field_definition_id: 502, visible: true, required: false, position: 2 },
     });
     expect(metadataPosts).toEqual([
       { custom_field_metadatum: { custom_field_definition_id: 501, custom_fields_section_id: 400, host_type: "Observations::Item", source_type: "ConfigurableFieldSet", source_id: 40, position: 1, visible: true, required: false } },
@@ -268,38 +271,82 @@ describe("field sets adapter", () => {
     ]);
   });
 
-  it("actualizar añade solo los que faltan con custom_field_metadata y nunca usa el PATCH del field set", async () => {
-    const { ctx, calls } = mockProcore({
-      [CF_LIST]: () => [
-        { id: 501, label: "A [QE-CF-1]", data_type: "string" },
-        { id: 502, label: "B [QE-CF-2]", data_type: "string" },
-        { id: 503, label: "C [QE-CF-3]", data_type: "string" },
-      ],
-      "GET /rest/v2.1/companies/7/configurable_field_sets": () => [{ id: 12, name: "X [QE-FS-1]" }],
-      "GET /rest/v2.1/companies/7/configurable_field_sets/12": () => ({
-        id: 12,
-        class_name: "Observations::Item",
-        category: "quality",
-        fields: { name: { name: "name", visible: true } },
-        custom_field_sections: [{ id: 120, name: "General", custom_field_definition_ids: [501, 503] }],
-      }),
-      "GET /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: [] }),
-      "POST /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: { id: 1 } }),
-    });
-    const current = { key: "QE-FS-1", stdId: "QE-FS-1", name: "X [QE-FS-1]", text: "X", remoteId: "12", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-3"] } };
-    const desired = { key: "QE-FS-1", stdId: "QE-FS-1", name: "X [QE-FS-1]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-2"] } };
-    const plan = await fieldSetsAdapter.plan(desired, [current], ctx, { includeTexts: false });
+  const updateRoutes = (patch: (body: Record<string, unknown>) => Response | object, state: { cfs: number[] }) => ({
+    [CF_LIST]: () => [
+      { id: 501, label: "A [QE-CF-1]", data_type: "string" },
+      { id: 502, label: "B [QE-CF-2]", data_type: "string" },
+      { id: 503, label: "C [QE-CF-3]", data_type: "string" },
+    ],
+    "GET /rest/v2.1/companies/7/configurable_field_sets": () => [{ id: 12, name: "X [QE-FS-1]" }],
+    // Formato real v2.1: custom fields dentro de "fields" (custom_field_<n>), secciones en "sections".
+    "GET /rest/v2.1/companies/7/configurable_field_sets/12": () => ({
+      id: 12,
+      name: "X [QE-FS-1]",
+      class_name: "Observations::Item",
+      category: "quality",
+      fields: {
+        name: { name: "name", visible: true, required: true },
+        ...Object.fromEntries(state.cfs.map((id, i) => [`custom_field_${900 + i}`, { id: String(900 + i), name: `custom_field_${900 + i}`, custom_field_definition_id: String(id), custom_fields_section_id: "120", host_type: "Observations::Item", position: i + 1, visible: true, required: false, label: "x" }])),
+      },
+      sections: [{ id: "120", name: "General", position: 1 }],
+    }),
+    "PATCH /rest/v2.1/companies/7/configurable_field_sets/12": (_u: URL, init: RequestInit) => patch(JSON.parse(String(init.body))),
+    "GET /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: [] }),
+    "POST /rest/v2.0/companies/7/custom_field_metadata": () => ({ data: { id: 1 } }),
+  });
+  const current = { key: "QE-FS-1", stdId: "QE-FS-1", name: "X [QE-FS-1]", text: "X", remoteId: "12", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-3"] } };
+  const desiredUpd = { key: "QE-FS-1", stdId: "QE-FS-1", name: "X [QE-FS-1]", attrs: { class_name: "Observations::Item", scope: "quality", custom_fields: ["QE-CF-1", "QE-CF-2"] } };
+
+  it("lee los custom fields de 'fields' por custom_field_definition_id (no por el número de la clave)", async () => {
+    const raw = {
+      fields: {
+        field_1: { name: "field_1", visible: true },
+        custom_field_1: { id: "999", name: "custom_field_1", custom_field_definition_id: "555", custom_fields_section_id: "1", position: 2 },
+        custom_field_7: { custom_field_definition_id: "444", custom_fields_section_id: "1", position: 1 },
+      },
+      sections: [{ id: "1", name: "Section 1", position: 999, from_v1_custom_fields: false }],
+    };
+    expect(extractSections(raw)).toEqual([{ id: "1", name: "Section 1", remoteIds: ["444", "555"] }]);
+  });
+
+  it("actualizar: PATCH documentado con los custom fields dentro de fields (conservando los existentes)", async () => {
+    const state = { cfs: [501, 503] };
+    let patchBody: Record<string, unknown> | null = null;
+    const { ctx, calls } = mockProcore(
+      updateRoutes((b) => {
+        patchBody = b;
+        state.cfs = [501, 503, 502];
+        return { data: { id: 12 } };
+      }, state),
+    );
+    const plan = await fieldSetsAdapter.plan(desiredUpd, [current], ctx, { includeTexts: false });
     expect(plan.action).toBe("UPDATE");
-    const [r] = await fieldSetsAdapter.apply([{ desired, plan, current }], ctx, { includeTexts: false });
+    const [r] = await fieldSetsAdapter.apply([{ desired: desiredUpd, plan, current }], ctx, { includeTexts: false });
     expect(r.ok).toBe(true);
     expect(r.message).toMatch(/1 custom field\(s\) añadidos/);
     expect(r.message).toMatch(/sobran \[QE-CF-3\]/);
-    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
-    const md = calls.filter((c) => c.method === "POST").map((c) => (c.body as { custom_field_metadatum: { custom_field_definition_id: number } }).custom_field_metadatum.custom_field_definition_id);
-    expect(md).toEqual([502]);
+    const fields = (patchBody as unknown as { configurable_field_set: { fields: Record<string, Record<string, unknown>> } }).configurable_field_set.fields;
+    expect(fields.name).toEqual({ name: "name", visible: true, required: true });
+    expect(fields.custom_field_900).toEqual({ name: "custom_field_900", custom_field_definition_id: "501", custom_fields_section_id: "120", visible: true, required: false, position: 1 });
+    expect(fields.custom_field_502).toEqual({ name: "custom_field_502", custom_field_definition_id: 502, custom_fields_section_id: 120, visible: true, required: false, position: 3 });
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
     // Si ya tiene todos los pedidos (aunque sobre alguno): SIN CAMBIOS.
     const superset = { ...current, attrs: { ...current.attrs, custom_fields: ["QE-CF-1", "QE-CF-2", "QE-CF-3"] } };
-    expect((await fieldSetsAdapter.plan(desired, [superset], ctx, { includeTexts: false })).action).toBe("NOCHANGE");
+    expect((await fieldSetsAdapter.plan(desiredUpd, [superset], ctx, { includeTexts: false })).action).toBe("NOCHANGE");
+  });
+
+  it("actualizar: si el PATCH se rechaza por campos condicionales, recurre a custom_field_metadata e informa de ambos", async () => {
+    const state = { cfs: [501, 503] };
+    const { ctx, calls } = mockProcore(
+      updateRoutes(() => new Response(JSON.stringify({ errors: ["You cannot use this endpoint on a field set with conditional fields."] }), { status: 422 }), state),
+    );
+    const plan = await fieldSetsAdapter.plan(desiredUpd, [current], ctx, { includeTexts: false });
+    const [r] = await fieldSetsAdapter.apply([{ desired: desiredUpd, plan, current }], ctx, { includeTexts: false });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/conditional fields/);
+    expect(r.message).toMatch(/1 custom field\(s\) añadidos con custom_field_metadata/);
+    const md = calls.filter((c) => c.method === "POST").map((c) => (c.body as { custom_field_metadatum: { custom_field_definition_id: number } }).custom_field_metadatum);
+    expect(md).toMatchObject([{ custom_field_definition_id: 502, custom_fields_section_id: 120, source_id: 12 }]);
   });
 
   it("si falla la asociación, el resultado dice que el field set SÍ se creó y guarda el HTTP y la respuesta de cada fallo", async () => {

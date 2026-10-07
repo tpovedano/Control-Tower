@@ -26,9 +26,22 @@ export interface SectionInfo {
 }
 
 /** Extrae (de forma defensiva) las secciones y los IDs numéricos de custom fields de un field set. */
+/** Entrada de custom field dentro de "fields" (formato v2.1: clave "custom_field_<n>" con custom_field_definition_id). */
+export function isCustomFieldEntry(key: string, value: unknown): boolean {
+  return /^custom_field_/.test(key) || (!!value && typeof value === "object" && (value as Record<string, unknown>).custom_field_definition_id !== undefined);
+}
+
+/**
+ * Secciones y custom fields (IDs locales de custom_field_definition) de un field set.
+ * Formato v2.1 (detalle): los custom fields están en "fields" como "custom_field_<n>": { custom_field_definition_id,
+ * custom_fields_section_id, … } y las secciones en "sections" (sin lista de custom fields). OJO: el <n> de la clave
+ * NO es el ID del custom field; se usa custom_field_definition_id. También se aceptan formatos con la lista de IDs
+ * dentro de cada sección.
+ */
 export function extractSections(raw: Record<string, unknown>): { id: string | null; name: string; remoteIds: string[] }[] {
   const sectionsRaw = (raw.custom_field_sections ?? raw.sections ?? []) as RawSection[];
   const out: { id: string | null; name: string; remoteIds: string[] }[] = [];
+  const byId = new Map<string, { id: string | null; name: string; remoteIds: string[] }>();
   if (Array.isArray(sectionsRaw)) {
     for (const s of sectionsRaw) {
       const ids = new Set<string>();
@@ -36,11 +49,30 @@ export function extractSections(raw: Record<string, unknown>): { id: string | nu
       (s.custom_field_definitions ?? []).forEach((x) => x?.id !== undefined && ids.add(String(x.id)));
       (s.custom_field_metadata ?? []).forEach((x) => x?.custom_field_definition_id !== undefined && ids.add(String(x.custom_field_definition_id)));
       if (s.fields && typeof s.fields === "object") collectCustomFieldIds(s.fields, ids);
-      out.push({ id: s.id !== undefined ? String(s.id) : null, name: String(s.name ?? ""), remoteIds: [...ids] });
+      const sec = { id: s.id !== undefined && s.id !== null ? String(s.id) : null, name: String(s.name ?? ""), remoteIds: [...ids] };
+      out.push(sec);
+      if (sec.id) byId.set(sec.id, sec);
     }
   }
-  // Algunas versiones listan los custom fields dentro de "fields" con claves "custom_field_<id>".
-  if (!out.some((s) => s.remoteIds.length) && raw.fields && typeof raw.fields === "object") {
+  // Custom fields dentro de "fields": se reparten en su sección por custom_fields_section_id.
+  if (raw.fields && typeof raw.fields === "object" && !Array.isArray(raw.fields)) {
+    const entries = Object.entries(raw.fields as Record<string, unknown>)
+      .filter(([k, v]) => isCustomFieldEntry(k, v))
+      .map(([k, v]) => ({ key: k, v: (v && typeof v === "object" ? v : {}) as Record<string, unknown> }))
+      .sort((a, b) => Number(a.v.position ?? 0) - Number(b.v.position ?? 0));
+    for (const { key, v } of entries) {
+      const defId = v.custom_field_definition_id !== undefined && v.custom_field_definition_id !== null ? String(v.custom_field_definition_id) : /^custom_field_(\d+)$/.exec(key)?.[1];
+      if (!defId) continue;
+      const secId = v.custom_fields_section_id !== undefined && v.custom_fields_section_id !== null ? String(v.custom_fields_section_id) : null;
+      let sec = secId ? byId.get(secId) : out.find((x) => x.id === null);
+      if (!sec) {
+        sec = { id: secId, name: "", remoteIds: [] };
+        out.push(sec);
+        if (secId) byId.set(secId, sec);
+      }
+      if (!sec.remoteIds.includes(defId)) sec.remoteIds.push(defId);
+    }
+  } else if (Array.isArray(raw.fields)) {
     const ids = new Set<string>();
     collectCustomFieldIds(raw.fields, ids);
     if (ids.size) out.push({ id: null, name: "", remoteIds: [...ids] });
@@ -60,8 +92,11 @@ function collectCustomFieldIds(fields: unknown, into: Set<string>) {
     return;
   }
   for (const [k, v] of Object.entries(fields as Record<string, unknown>)) {
-    if (!matchKey(k, into) && v && typeof v === "object" && (v as Record<string, unknown>).custom_field_definition_id !== undefined) {
+    // Primero el ID real (custom_field_definition_id); el número de la clave solo como último recurso.
+    if (v && typeof v === "object" && (v as Record<string, unknown>).custom_field_definition_id !== undefined) {
       into.add(String((v as Record<string, unknown>).custom_field_definition_id));
+    } else {
+      matchKey(k, into);
     }
   }
 }
@@ -252,7 +287,8 @@ async function resolveFields(className: string, scope: string | null, ctx: Adapt
 }
 
 /**
- * Copia de "fields" apta para crear: solo las propiedades básicas de cada campo (como en el ejemplo del contrato:
+ * Copia de "fields" apta para crear: sin los custom fields de la plantilla y solo con las propiedades básicas de
+ * cada campo (como en el ejemplo del contrato:
  * { name, visible, required }). Se descartan objetos/arrays anidados (condiciones, reglas…): si no, el field set
  * nuevo hereda campos condicionales y después Procore no deja actualizarlo ("conditional fields").
  */
@@ -260,6 +296,8 @@ export function sanitizeFields(fields: Record<string, unknown>): Record<string, 
   const out: Record<string, Record<string, unknown>> = {};
   for (const [key, val] of Object.entries(fields)) {
     if (!val || typeof val !== "object" || Array.isArray(val)) continue;
+    // Los custom fields de la plantilla NO se copian (pertenecen a ella y a sus secciones).
+    if (isCustomFieldEntry(key, val)) continue;
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
       if (/condition/i.test(k)) continue;
@@ -267,6 +305,39 @@ export function sanitizeFields(fields: Record<string, unknown>): Record<string, 
     }
     if (clean.name === undefined) clean.name = key;
     out[key] = clean;
+  }
+  return out;
+}
+
+/** Entrada de custom field para "fields", con la forma que devuelve Procore (custom_field_<n> → custom_field_definition_id). */
+export function customFieldEntries(
+  defIds: string[],
+  opts: { sectionId?: string | null; startPosition?: number } = {},
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  defIds.forEach((id, i) => {
+    const key = `custom_field_${id}`;
+    out[key] = {
+      name: key,
+      custom_field_definition_id: Number(id),
+      ...(opts.sectionId ? { custom_fields_section_id: Number(opts.sectionId) } : {}),
+      visible: true,
+      required: false,
+      position: (opts.startPosition ?? 0) + i + 1,
+    };
+  });
+  return out;
+}
+
+/** Custom fields ya presentes en "fields" de un field set, reducidos a lo necesario para reenviarlos en un PATCH. */
+function currentCustomFieldEntries(fields: Record<string, unknown>): Record<string, Record<string, unknown>> {
+  const keep = ["name", "custom_field_definition_id", "custom_fields_section_id", "visible", "required", "position", "row", "column", "column_width"];
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (!isCustomFieldEntry(k, v) || !v || typeof v !== "object") continue;
+    const e: Record<string, unknown> = {};
+    for (const p of keep) if ((v as Record<string, unknown>)[p] !== undefined) e[p] = (v as Record<string, unknown>)[p];
+    out[k] = e;
   }
   return out;
 }
@@ -451,10 +522,22 @@ export const fieldSetsAdapter: ServerAdapter = {
           if (tmpl.schema_id !== null && tmpl.schema_id !== undefined && tmpl.schema_id !== "") set.schema_id = tmpl.schema_id;
           if (className !== "Observations::Item" && resolved.sameScope && typeof tmpl.category === "string") set.category = tmpl.category;
         }
-        const body = { configurable_field_set: set, custom_field_sections: desiredSections(desired.extra, ids).map(toSection) };
-        const created = await runWrite(body, () => ctx.client.post(E.fieldSets.create(ctx.companyId), body, { resource: "Field Sets" }), idOf, `Creado (campos de ${resolved.source})`);
+        const sections = desiredSections(desired.extra, ids).map(toSection);
+        // 1º intento: los custom fields también dentro de "fields" (así los representa Procore).
+        const withCf = { configurable_field_set: { ...set, fields: { ...(set.fields as object), ...customFieldEntries(wantedRemote) } }, custom_field_sections: sections };
+        const ok = `Creado (campos de ${resolved.source})`;
+        let body: unknown = withCf;
+        let created = await runWrite(withCf, () => ctx.client.post(E.fieldSets.create(ctx.companyId), withCf, { resource: "Field Sets" }), idOf, ok);
+        if (!created.ok && wantedRemote.length && (created.httpStatus === 422 || created.httpStatus === 400)) {
+          // 2º intento sin ellos (los custom fields se añaden después).
+          const plain = { configurable_field_set: set, custom_field_sections: sections };
+          const retry = await runWrite(plain, () => ctx.client.post(E.fieldSets.create(ctx.companyId), plain, { resource: "Field Sets" }), idOf, ok);
+          if (retry.ok) retry.message += ` (Procore no aceptó los custom fields dentro de "fields": ${created.message})`;
+          created = retry;
+          body = { intento_1: withCf, intento_2: plain };
+        }
         if (!created.ok || !created.remoteId) {
-          results.push(created);
+          results.push({ ...created, request: body });
           continue;
         }
         // Procore puede ignorar custom_field_sections al crear: se comprueba y se añaden los que falten.
@@ -477,24 +560,73 @@ export const fieldSetsAdapter: ServerAdapter = {
           });
         }
       } else {
-        // Actualizar = añadir los custom fields que falten mediante custom_field_metadata. No se usa el PATCH del
-        // field set: Procore lo rechaza en field sets con campos condicionales y podría alterar su configuración.
+        // Actualizar = añadir los custom fields que falten. 1º el PATCH documentado (con los custom fields dentro de
+        // "fields"); si Procore lo rechaza (p. ej. "field set with conditional fields"), custom_field_metadata.
         const className = normalizeClassName(String(current?.attrs.class_name ?? desired.attrs.class_name));
-        const att = await attachMissing(plan.remoteId!, className, wantedRemote, ctx);
-        const extra = att.present.filter((r) => !wantedRemote.includes(r));
+        const fsId = plan.remoteId!;
+        let detail: Record<string, unknown> = {};
+        try {
+          detail = extractObject<Record<string, unknown>>((await ctx.client.get(E.fieldSets.show(ctx.companyId, fsId), { resource: "Field Sets" })).data);
+        } catch (e) {
+          results.push({ ok: false, remoteId: fsId, message: `No se pudo leer el field set: ${(e as Error).message}`, request: null, response: null });
+          continue;
+        }
+        const secs = extractSections(detail);
+        const present = new Set(secs.flatMap((x) => x.remoteIds));
+        const toAdd = wantedRemote.filter((id) => !present.has(id));
+        const extra = [...present].filter((r) => !wantedRemote.includes(r));
         const parts: string[] = [];
-        if (att.added) parts.push(`${att.added} custom field(s) añadidos`);
-        if (!att.added && !att.errors.length) parts.push("ya tenía todos los custom fields");
-        if (att.errors.length) parts.push(`no se pudieron asociar ${att.errors.length} custom field(s) con custom_field_metadata: ${describeAttachErrors(att.errors, (r) => describe([r]))}`);
+        const requests: Record<string, unknown> = {};
+        const responses: Record<string, unknown> = {};
+        let ok = true;
+        let httpStatus: number | undefined;
+        if (toAdd.length) {
+          const curFields = (detail.fields && typeof detail.fields === "object" ? detail.fields : {}) as Record<string, unknown>;
+          const maxPos = Math.max(0, ...Object.values(currentCustomFieldEntries(curFields)).map((e) => Number(e.position ?? 0)));
+          const firstSection = secs.find((x) => x.id)?.id ?? null;
+          const patchBody = {
+            configurable_field_set: {
+              name: String(detail.name ?? current?.name ?? desired.name),
+              fields: { ...sanitizeFields(curFields), ...currentCustomFieldEntries(curFields), ...customFieldEntries(toAdd, { sectionId: firstSection, startPosition: maxPos }) },
+            },
+            custom_field_sections: secs
+              .filter((x) => x.id)
+              .map((x, i) => ({ id: x.id, name: x.name, custom_field_definition_ids: [...x.remoteIds, ...(i === 0 ? toAdd : [])].map(Number) })),
+          };
+          requests.patch = patchBody;
+          const patched = await runWrite(patchBody, () => ctx.client.patch(E.fieldSets.update(ctx.companyId, fsId), patchBody, { resource: "Field Sets" }), idOf, "ok");
+          responses.patch = patched.response;
+          let stillMissing = toAdd;
+          if (patched.ok) {
+            const after = await attachedCustomFieldIds(fsId, ctx);
+            stillMissing = toAdd.filter((id) => !after.ids.has(id));
+            if (toAdd.length > stillMissing.length) parts.push(`${toAdd.length - stillMissing.length} custom field(s) añadidos`);
+          } else {
+            parts.push(`el PATCH del field set no se aceptó (${patched.message})`);
+          }
+          if (stillMissing.length) {
+            const att = await attachMissing(fsId, className, stillMissing, ctx);
+            requests.custom_field_metadata = att.requests;
+            if (att.added) parts.push(`${att.added} custom field(s) añadidos con custom_field_metadata`);
+            if (att.errors.length) {
+              ok = false;
+              httpStatus = att.errors[0].httpStatus ?? patched.httpStatus;
+              responses.errores_custom_field_metadata = att.errors;
+              parts.push(`tampoco con custom_field_metadata: ${describeAttachErrors(att.errors, (r) => describe([r]))}`);
+            }
+          }
+        } else {
+          parts.push("ya tenía todos los custom fields");
+        }
         if (extra.length) parts.push(`sobran ${describe(extra)}: no se quitan (v1 no elimina nada)`);
         if (options.includeTexts && current && current.name !== desired.name) parts.push("el nombre no se cambia en field sets (hazlo en Procore)");
         results.push({
-          ok: att.errors.length === 0,
-          remoteId: plan.remoteId,
-          httpStatus: att.errors[0]?.httpStatus,
-          message: `${att.errors.length ? "No actualizado" : "Actualizado"}: ${parts.join("; ")}`,
-          request: { custom_field_metadata: att.requests },
-          response: att.errors.length ? { errores_custom_field_metadata: att.errors } : null,
+          ok,
+          remoteId: fsId,
+          httpStatus,
+          message: `${ok ? "Actualizado" : "No actualizado"}: ${parts.join("; ")}`,
+          request: requests,
+          response: Object.keys(responses).length ? responses : null,
         });
       }
     }

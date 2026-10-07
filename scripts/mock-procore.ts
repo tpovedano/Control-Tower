@@ -33,7 +33,7 @@ const companies: Record<string, Company> = {
     fieldSets: [
       { id: 31, name: "Predeterminado Observaciones Seguridad", class_name: "Observations::Item", category: "safety", company_default: true, fields: { name: { name: "name", visible: true, required: true }, description: { name: "description", visible: true, required: false } }, custom_field_sections: [] },
       { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observations::Item", category: "quality", company_default: true, fields: { name: { name: "name", visible: true, required: true }, description: { name: "description", visible: true, required: false, conditions: [{ field: "name", operator: "present" }] } }, custom_field_sections: [] },
-      { id: 32, name: "Calidad [QE-FS-001]", class_name: "Observations::Item", category: "quality", fields: { name: { name: "name", visible: true, required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
+      { id: 32, name: "Calidad [QE-FS-001]", class_name: "Observations::Item", category: "quality", fields: { name: { name: "name", visible: true, required: true, conditions: [{ field: "type" }] } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11] }] }, // con campos condicionales
     ],
     metadata: [{ id: 901, custom_field_definition_id: 11, custom_fields_section_id: 301, host_type: "Observations::Item", source_type: "ConfigurableFieldSet", source_id: 32, position: 1 }],
     inspectionTypes: [{ id: 41, name: "Seguridad [HS-IT-001]", grouping: "HSE" }],
@@ -68,6 +68,36 @@ const DATA_TYPES = {
     { data_type: "location", variants: [] },
   ],
 };
+
+
+/** Detalle con la forma real de v2.1: custom fields dentro de "fields" (custom_field_<n>) y secciones en "sections". */
+function renderFieldSet(fs: Obj): Obj {
+  const sections = ((fs.custom_field_sections ?? []) as Obj[]);
+  const fields: Record<string, unknown> = { ...((fs.fields ?? {}) as object) };
+  let n = 0;
+  for (const sec of sections) {
+    for (const defId of (sec.custom_field_definition_ids ?? []) as number[]) {
+      n++;
+      fields[`custom_field_${fs.id}${n}`] = { id: `${fs.id}${n}`, name: `custom_field_${fs.id}${n}`, custom_field_definition_id: String(defId), custom_fields_section_id: String(sec.id), host_type: fs.class_name, position: n, visible: true, required: false };
+    }
+  }
+  const { custom_field_sections: _s, ...rest } = fs;
+  return { ...rest, fields, sections: sections.map((x, i) => ({ id: String(x.id), name: x.name, position: i + 1, from_v1_custom_fields: false })) };
+}
+
+/** Saca de "fields" las entradas de custom fields y las coloca en su sección (o en la primera). */
+function absorbCustomFields(fs: Obj) {
+  const fields = (fs.fields ?? {}) as Record<string, Obj>;
+  const sections = ((fs.custom_field_sections ??= []) as Obj[]);
+  if (!sections.length) sections.push({ id: nextId(), name: "General", custom_field_definition_ids: [] });
+  for (const [k, v] of Object.entries(fields)) {
+    if (!/^custom_field_/.test(k) || !v || typeof v !== "object" || v.custom_field_definition_id === undefined) continue;
+    delete fields[k];
+    const sec = sections.find((x) => String(x.id) === String(v.custom_fields_section_id)) ?? sections[0];
+    const list = (sec.custom_field_definition_ids ??= []) as number[];
+    if (!list.includes(Number(v.custom_field_definition_id))) list.push(Number(v.custom_field_definition_id));
+  }
+}
 
 let counter = 0;
 
@@ -187,19 +217,21 @@ const server = http.createServer(async (req, res) => {
     else if (!["Observations::Item", "PunchItem", "Rfi::Header"].includes(String(fs.class_name))) errs.push("class_name is not included in the list");
     if (errs.length) return send(res, 422, { errors: { base: errs } });
     // Como el Procore real observado: ignora los custom fields de custom_field_sections al crear.
-    const created = { ...fs, id: nextId(), custom_field_sections: [{ id: nextId(), name: "General", custom_field_definition_ids: [] as number[] }] };
+    const created: Obj = { ...fs, id: nextId(), custom_field_sections: [{ id: nextId(), name: "General", custom_field_definition_ids: [] as number[] }] };
+    absorbCustomFields(created); // los custom fields enviados dentro de "fields" sí se guardan
     c.fieldSets.push(created);
-    return send(res, 201, { data: created });
+    return send(res, 201, { data: renderFieldSet(created) });
   }
   if ((mm = /^\/rest\/v2\.1\/companies\/\d+\/configurable_field_sets\/(\d+)$/.exec(path))) {
     const fs = c.fieldSets.find((x) => x.id === Number(mm![1]));
     if (!fs) return send(res, 404, { error: "not found" });
-    if (m === "GET") return send(res, 200, { data: fs });
+    if (m === "GET") return send(res, 200, { data: renderFieldSet(fs) });
     const hasConditional = Object.values((fs.fields ?? {}) as Record<string, Obj>).some((f) => f && typeof f === "object" && "conditions" in f);
     if (hasConditional) return send(res, 422, { errors: ["You cannot use this endpoint on a field set with conditional fields."] });
     const b = await body(req);
-    Object.assign(fs, b.configurable_field_set, { custom_field_sections: ((b.custom_field_sections ?? []) as Obj[]).map((s) => ({ ...s, id: s.id ?? nextId() })) });
-    return send(res, 200, { data: fs });
+    Object.assign(fs, b.configurable_field_set);
+    absorbCustomFields(fs);
+    return send(res, 200, { data: renderFieldSet(fs) });
   }
 
   // Inspection types
