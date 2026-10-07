@@ -160,7 +160,7 @@ describe("field sets adapter", () => {
     });
     const items = await fieldSetsAdapter.list(ctx);
     const fs1 = items.find((i) => i.key === "FS-1")!;
-    expect(fs1.attrs).toEqual({ class_name: "Observation", scope: "Quality", custom_fields: ["#999", "CF-2"] });
+    expect(fs1.attrs).toEqual({ class_name: "Observations::Item", scope: "Quality", custom_fields: ["#999", "CF-2"] });
 
     const desired = {
       key: "FS-2",
@@ -178,7 +178,7 @@ describe("field sets adapter", () => {
     expect(post.body).toEqual({
       configurable_field_set: {
         name: "[FS-2] Nuevo",
-        class_name: "Observation",
+        class_name: "Observations::Item",
         fields: { title: { required: true }, description: { visible: true } },
         observations_category_id: 80,
         schema_id: 9,
@@ -208,8 +208,10 @@ describe("field sets adapter", () => {
     expect(extractScope({ observations_category_id: 3 })).toEqual({ kind: "observations_category", id: "3", name: null });
     expect(extractScope({ category: "safety" })).toEqual({ kind: "category", id: null, name: "safety" });
     expect(extractScope({})).toBeNull();
-    expect(parseClassCell("Observation | Safety")).toEqual({ className: "Observation", scope: "Safety" });
+    expect(parseClassCell("Observation | Safety")).toEqual({ className: "Observations::Item", scope: "Safety" });
     expect(parseClassCell("Observations::Item")).toEqual({ className: "Observations::Item", scope: null });
+    expect(parseClassCell("punch list")).toEqual({ className: "PunchItem", scope: null });
+    expect(parseClassCell("RFI")).toEqual({ className: "Rfi::Header", scope: null });
   });
 
   it("dependencia faltante", async () => {

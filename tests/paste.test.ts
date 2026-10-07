@@ -90,13 +90,25 @@ describe("validateBatch", () => {
   });
   it("field sets: lista de custom fields y secciones", () => {
     const r = validateBatch("field_sets", [["[FS-1] Calidad", "Observation | Quality", "[CF-001];[CF-002]", "A: [CF-001] | B: [CF-002]"]]);
-    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observation", scope: "Quality", custom_fields: ["CF-001", "CF-002"] });
+    expect(r[0].desired?.attrs).toMatchObject({ class_name: "Observations::Item", scope: "Quality", custom_fields: ["CF-001", "CF-002"] });
     expect(r[0].desired?.extra?.sections).toEqual([
       { name: "A", ids: ["CF-001"] },
       { name: "B", ids: ["CF-002"] },
     ]);
     const bad = validateBatch("field_sets", [["[FS-2] X", "", ""]]);
     expect(bad[0].status).toBe("error");
+    // Clases oficiales: Observations::Item (exige categoría), PunchItem, Rfi::Header
+    const cls = validateBatch("field_sets", [
+      ["[FS-3] A", "Observations::Item", "[CF-1]"],
+      ["[FS-4] B", "PunchItem", "[CF-1]"],
+      ["[FS-5] C", "RFI", "[CF-1]"],
+      ["[FS-6] D", "Inspection", "[CF-1]"],
+    ]);
+    expect(cls[0].status).toBe("error");
+    expect(cls[0].messages[0]).toMatch(/categoría/);
+    expect(cls[1].status).toBe("valid");
+    expect(cls[2].desired?.attrs.class_name).toBe("Rfi::Header");
+    expect(cls[3].messages[0]).toMatch(/no válida/);
   });
   it("límite de filas", () => {
     const rows = Array.from({ length: 3 }, (_, i) => [`[IT-${i}] X`]);

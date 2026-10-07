@@ -30,9 +30,9 @@ const companies: Record<string, Company> = {
     ],
     lovs: { 12: [{ id: 121, label: "[OK] Conforme", active: true, position: 2 }, { id: 122, label: "[NOK] No conforme", active: true, position: 1 }] },
     fieldSets: [
-      { id: 31, name: "Predeterminado Observaciones Seguridad", class_name: "Observation", observations_category_id: 7, observations_category: { id: 7, name: "Safety" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
-      { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observation", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
-      { id: 32, name: "[FS-001] Calidad", class_name: "Observation", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, fields: { title: { required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
+      { id: 31, name: "Predeterminado Observaciones Seguridad", class_name: "Observations::Item", observations_category_id: 7, observations_category: { id: 7, name: "Safety" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
+      { id: 33, name: "Predeterminado Observaciones Calidad", class_name: "Observations::Item", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] },
+      { id: 32, name: "[FS-001] Calidad", class_name: "Observations::Item", observations_category_id: 8, observations_category: { id: 8, name: "Quality" }, fields: { title: { required: true } }, custom_field_sections: [{ id: 301, name: "General", custom_field_definition_ids: [11, 12] }] },
     ],
     inspectionTypes: [{ id: 41, name: "[IT-001] Seguridad", grouping: "HSE" }],
     observationTypes: [{ id: 51, name: "[OT-001] Seguridad", category: "safety", active: true }],
@@ -44,7 +44,7 @@ const companies: Record<string, Company> = {
       { id: 22, label: "[CF-002] Quality status", data_type: "lov_entry", active: false },
     ],
     lovs: { 22: [{ id: 221, label: "[OK] Compliant", active: true, position: 1 }] },
-    fieldSets: [{ id: 61, name: "Default Quality Observations", class_name: "Observation", observations_category_id: 81, observations_category: { id: 81, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] }],
+    fieldSets: [{ id: 61, name: "Default Quality Observations", class_name: "Observations::Item", observations_category_id: 81, observations_category: { id: 81, name: "Quality" }, company_default: true, fields: { title: { required: true } }, custom_field_sections: [] }],
     inspectionTypes: [],
     observationTypes: [{ id: 71, name: "[OT-001] Safety", category: "safety", active: true }],
   },
@@ -159,8 +159,9 @@ const server = http.createServer(async (req, res) => {
     const fs = b.configurable_field_set as Obj;
     const errs: string[] = [];
     if (!fs?.fields || !Object.keys(fs.fields as object).length) errs.push("Configurable fields can't be blank");
-    if (fs?.class_name === "Observation" && !fs.observations_category_id) errs.push("Observation category can't be blank");
+    if (fs?.class_name === "Observations::Item" && !fs.observations_category_id) errs.push("Observation category can't be blank");
     if (!fs?.name || !fs.class_name) errs.push("name and class_name are required");
+    else if (!["Observations::Item", "PunchItem", "Rfi::Header"].includes(String(fs.class_name))) errs.push("class_name is not included in the list");
     if (errs.length) return send(res, 422, { errors: { base: errs } });
     const created = { ...fs, id: nextId(), custom_field_sections: ((b.custom_field_sections ?? []) as Obj[]).map((s) => ({ ...s, id: nextId() })) };
     c.fieldSets.push(created);

@@ -30,12 +30,36 @@ export function parseSections(raw: string | undefined, allIds: string[]): { sect
   return { sections, errors };
 }
 
+/** Valores permitidos de configurable_field_set.class_name según el contrato de Procore. */
+export const FIELD_SET_CLASSES = [
+  { value: "Observations::Item", label: "Observaciones", requiresScope: true },
+  { value: "PunchItem", label: "Punch List", requiresScope: false },
+  { value: "Rfi::Header", label: "RFI", requiresScope: false },
+] as const;
+
+/** Convierte alias habituales ("Observation", "Observaciones", "Punch", "RFI"…) al class_name oficial. */
+export function normalizeClassName(raw: string | null | undefined): string {
+  const v = (raw ?? "").trim();
+  if (!v) return "";
+  const exact = FIELD_SET_CLASSES.find((c) => c.value.toLowerCase() === v.toLowerCase());
+  if (exact) return exact.value;
+  const k = v.toLowerCase().replace(/[^a-z]/g, "");
+  if (k.startsWith("observ")) return "Observations::Item";
+  if (k.startsWith("punch")) return "PunchItem";
+  if (k.startsWith("rfi")) return "Rfi::Header";
+  return v;
+}
+
+export function classLabel(className: string): string {
+  return FIELD_SET_CLASSES.find((c) => c.value === className)?.label ?? className;
+}
+
 /** Celda "Clase/Herramienta": "class_name" o "class_name | categoría/tipo". */
 export function parseClassCell(raw: string | undefined): { className: string; scope: string | null } {
   const v = (raw ?? "").trim();
   const i = v.indexOf(" | ");
-  if (i < 0) return { className: v, scope: null };
-  return { className: v.slice(0, i).trim(), scope: v.slice(i + 3).trim() || null };
+  if (i < 0) return { className: normalizeClassName(v), scope: null };
+  return { className: normalizeClassName(v.slice(0, i)), scope: v.slice(i + 3).trim() || null };
 }
 
 export function templateCell(className: string, scope: string | null): string {
@@ -55,8 +79,8 @@ export const fieldSetsSpec: ObjectSpec = {
       id: "class_name",
       label: "Clase/Herramienta",
       required: true,
-      example: "Observation | Safety",
-      hint: "Herramienta y categoría/tipo del field set. Las opciones salen de los field sets sincronizados.",
+      example: "Observations::Item | Quality",
+      hint: "Observations::Item (con categoría), PunchItem o Rfi::Header. Las categorías salen de los field sets sincronizados.",
       input: "select",
       optionsKey: "fieldSetTemplates",
     },
@@ -74,8 +98,12 @@ export const fieldSetsSpec: ObjectSpec = {
     else if (!parsed.id) errors.push("El nombre no incluye un [ID] entre corchetes al inicio.");
     else if (!isValidIdFormat(parsed.id)) errors.push(`ID “${parsed.id}” con formato inválido.`);
     const { className, scope } = parseClassCell(cells.class_name);
+    const allowed = FIELD_SET_CLASSES.find((c) => c.value === className);
     if (!className) errors.push("Falta la clase/herramienta.");
-    else {
+    else if (!allowed) errors.push(`Clase “${className}” no válida. Permitidas: ${FIELD_SET_CLASSES.map((c) => `${c.value} (${c.label})`).join(", ")}.`);
+    else if (allowed.requiresScope && !scope) {
+      errors.push(`Para ${allowed.label} hay que indicar la categoría: “${className} | <categoría>” (elígela en el desplegable).`);
+    } else {
       const opts = ctx.options?.fieldSetTemplates;
       if (opts?.length && !opts.some((o) => o.value.toLowerCase() === templateCell(className, scope).toLowerCase())) {
         warnings.push(`“${templateCell(className, scope)}” no coincide con ningún field set sincronizado; el dry-run comprobará si existe una plantilla en cada instancia.`);

@@ -136,9 +136,9 @@ Después, opciones de la lista (**LOV Entries**):
 ```
 y un **Field Set**:
 ```
-[FS-001] Inspección de calidad	Observation | Quality	[CF-001];[CF-002];[CF-007]	General
+[FS-001] Inspección de calidad	Observations::Item | Quality	[CF-001];[CF-002];[CF-007]	General
 ```
-(*Clase/Herramienta* es un desplegable con las combinaciones herramienta + categoría/tipo de los field sets sincronizados, con formato `class_name | categoría` — también se puede pegar así desde Excel; *Custom fields incluidos* es una selección múltiple de los custom fields sincronizados. *Secciones*: vacío = “General”; `Sección A: [CF-001] | Sección B: [CF-002]` para varias.)
+(*Clase/Herramienta* es un desplegable con los `class_name` que admite Procore — `Observations::Item` (Observaciones, exige categoría), `PunchItem` (Punch List) y `Rfi::Header` (RFI) — combinados con las categorías de los field sets sincronizados, con formato `class_name | categoría`; también se puede pegar así desde Excel y se aceptan alias como *Observaciones*, *Punch* o *RFI*; *Custom fields incluidos* es una selección múltiple de los custom fields sincronizados. *Secciones*: vacío = “General”; `Sección A: [CF-001] | Sección B: [CF-002]` para varias.)
 
 **Paso 3 — Remediar.** En Gobierno, selecciona filas (o abre una) y usa **Crear donde falta** o **Alinear atributos**: abre el mismo dry-run + confirmación con la definición de referencia (catálogo maestro → instancia ★ → consenso).
 

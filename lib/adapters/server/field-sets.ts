@@ -4,7 +4,7 @@ import { extractObject } from "@/lib/procore/client";
 import { mapLimit } from "@/lib/procore/semaphore";
 import { planItem } from "@/lib/diff/plan";
 import type { NormalizedItem } from "@/lib/types";
-import { fieldSetsSpec, type SectionSpec } from "../specs/field-sets";
+import { fieldSetsSpec, normalizeClassName, type SectionSpec } from "../specs/field-sets";
 import { idOf, runWrite } from "./run-apply";
 import { listCustomFields } from "./custom-fields";
 import { memo, str, type AdapterContext, type ApplyResult, type ServerAdapter } from "./types";
@@ -128,7 +128,7 @@ function normalize(raw: Record<string, unknown>, cfByRemote: Map<string, Normali
     text: p.text,
     remoteId: String(raw.id),
     attrs: {
-      class_name: str(raw.class_name ?? raw.type ?? raw.klass),
+      class_name: normalizeClassName(str(raw.class_name ?? raw.type ?? raw.klass)) || null,
       scope: scopeLabel(scope),
       custom_fields: allIds,
     },
@@ -210,7 +210,8 @@ export function mergeSections(existing: SectionInfo[], desiredIds: string[], exp
 async function findTemplate(className: string, scope: string | null, ctx: AdapterContext): Promise<NormalizedItem | null> {
   const all = await listFieldSets(ctx);
   const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
-  const candidates = all.filter((f) => norm(f.attrs.class_name) === norm(className) && (scope ? norm(f.attrs.scope) === norm(scope) : true));
+  const cls = normalizeClassName(className);
+  const candidates = all.filter((f) => f.attrs.class_name === cls && (scope ? norm(f.attrs.scope) === norm(scope) : true));
   if (!candidates.length) return null;
   return candidates.find((c) => c.extra?.company_default === true) ?? candidates.find((c) => !c.key) ?? candidates[0];
 }
@@ -282,7 +283,7 @@ export const fieldSetsAdapter: ServerAdapter = {
         const info = template.extra?.scopeInfo as FieldSetScope | null;
         if (info?.id && info.kind !== "category" && !scopeAttrs[`${info.kind}_id`]) scopeAttrs[`${info.kind}_id`] = info.id;
         const body = {
-          configurable_field_set: { name: desired.name, class_name: tmpl.class_name ?? className, fields: tmpl.fields ?? {}, ...scopeAttrs },
+          configurable_field_set: { name: desired.name, class_name: normalizeClassName(className), fields: tmpl.fields ?? {}, ...scopeAttrs },
           custom_field_sections: desiredSections(desired.extra, ids).map(toSection),
         };
         results.push(await runWrite(body, () => ctx.client.post(E.fieldSets.create(ctx.companyId), body, { resource: "Field Sets" }), idOf, `Creado (plantilla: “${template.name}”)`));
